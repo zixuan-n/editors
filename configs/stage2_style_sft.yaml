@@ -1,0 +1,325 @@
+model:
+  # name: meta-llama/Llama-3.1-8B-Instruct
+  # --- Current (Qwen) ---
+  # name: Qwen/Qwen3-4B-Instruct-2507
+  # --- Mistral (optional) ---
+  # name: mistralai/Mistral-7B-Instruct-v0.3
+  # --- Gemma-2 (optional) ---
+  # name: google/gemma-2-9b-it
+  # --- New (Phi-4 mini) ---
+  # name: microsoft/Phi-4-mini-instruct
+  # --- New (Qwen2.5 7B Instruct) ---
+  # name: Qwen/Qwen2.5-7B-Instruct
+  # --- New (Llama-3.1 8B Instruct) ---
+  name: meta-llama/Llama-3.1-8B-Instruct
+  #init_stage2_from_base: false
+  init_stage2_from_base: true
+  #stage2_adapter_path: outputs/llama_CCAT  # path to the Stage-2 LoRA you want to continue
+  # stage2_adapter_path: outputs/Qwen_CCAT
+  # stage2_adapter_path: outputs/Mistral_CCAT
+  # stage2_adapter_path: outputs/Gemma2_CCAT
+  # stage2_adapter_path: outputs/Phi4mini_CCAT
+  # stage2_adapter_path: outputs/Qwen25_7B_CCAT
+  # stage2_adapter_path: outputs/Gemma2_blogs50_evaluator
+  # stage2_adapter_path: outputs/llama3_CCAT50
+  # stage2_adapter_path: outputs/llama3_blogs50_80_full
+  # stage2_adapter_path: outputs/llama3_blogs10
+  # stage2_adapter_path: outputs/deflated_llama3_blogs50_80_deltaW/adapter_deflated_stage2
+  # stage2_adapter_path: outputs/deflated_llama3_blogs50_80_deltaW_2/adapter_deflated_stage2
+  # stage2_adapter_path: outputs/lowacc_fake
+  # stage2_adapter_path: outputs/llama3_blogtext_300w_100p_technology
+  #stage2_adapter_path: outputs/llama_imdb
+  # stage2_adapter_path: outputs/Qwen_lowacc  # path to the Stage-2 LoRA you want to continue
+  # stage1_adapter_path: outputs/Qwen_atomic_cpt_stage1/checkpoint-1800
+  #stage1_adapter_path: outputs/llama3_atomic_cpt_stage1_CCAT
+  # stage1_adapter_path: outputs/Qwen_atomic_cpt_stage1_CCAT
+  # stage1_adapter_path: outputs/Mistral_atomic_cpt_stage1_CCAT
+  # stage1_adapter_path: outputs/Gemma2_atomic_cpt_stage1_CCAT
+  # stage1_adapter_path: outputs/Gemma2_atomic_cpt_stage1_lowacc
+  # stage1_adapter_path: outputs/Phi4mini_atomic_cpt_stage1_CCAT
+  # stage1_adapter_path: outputs/Qwen25_7B_atomic_cpt_stage1_CCAT
+  # stage1_adapter_path: outputs/Llama3_8B_atomic_cpt_stage1_reuter_100w_keep50
+  # stage1_adapter_path: outputs/llama3_atomic_cpt_stage1_blogs50
+  # stage1_adapter_path: outputs/llama3_atomic_cpt_stage1_blogs10
+  # stage1_adapter_path: outputs/llama3_atomic_cpt_stage1_lowacc_fake
+  stage1_adapter_path: outputs/llama3_atomic_cpt_stage1
+  # stage1_adapter_path: outputs/llama3_atomic_cpt_stage1_CCAT50
+  # stage1_adapter_path: outputs/Llama3_8B_atomic_cpt_stage1_blogtext_300w_100p_technology
+  torch_dtype: bfloat16
+  # attn_implementation: flash_attention_2
+  attn_implementation: null
+  trust_remote_code: false
+  device_map: "auto"
+
+quantization:
+  load_in_4bit: true
+  bnb_4bit_compute_dtype: bfloat16
+  bnb_4bit_quant_type: nf4
+  bnb_4bit_use_double_quant: true
+
+lora:
+  r: 8
+  lora_alpha: 16
+  lora_dropout: 0.1
+  target_modules:
+    # --- Phi-3/4-style (common naming) ---
+    # - qkv_proj
+    # - o_proj
+    # - gate_up_proj
+    # - down_proj
+
+    # --- Qwen/Llama/Gemma-style attention/MLP projections ---
+    - q_proj
+    - k_proj
+    - v_proj
+    # Optional:
+    # - k_proj
+    # - o_proj
+    # - gate_proj
+    # - up_proj
+    # - down_proj
+
+deflation:
+  # Build deflation bases from the Stage-1 adapter weights.
+  # Options: lora_A (old behavior) or deltaW (more robust to LoRA factor rotations).
+  basis_type: deltaW
+  basis_tol: 1e-6
+  # Optional substring filter on Stage-1 module names when building bases.
+  # Phi-3/4 include list (old):
+  # include_module:
+  #   - qkv_proj
+  #   - o_proj
+  #   - gate_up_proj
+  #   - down_proj
+
+  # Qwen/Llama include list:
+  include_module:
+    - q_proj
+    - k_proj
+    - v_proj
+  # Runtime logging (printed at Trainer logging steps) + final CSV summary.
+  sample_every: 10
+  log_topk: 5
+  # log_csv: outputs/deflated_Qwen_CCAT_deltaW/deflation_stats.csv
+  # log_csv: outputs/deflated_Mistral_CCAT_deltaW/deflation_stats.csv
+  # log_csv: outputs/deflated_Gemma2_CCAT_deltaW/deflation_stats.csv
+  # log_csv: outputs/deflated_Phi4mini_CCAT_deltaW/deflation_stats.csv
+  # log_csv: outputs/deflated_Qwen25_7B_CCAT_deltaW/deflation_stats.csv
+  # log_csv: outputs/deflated_Llama3_8B_reuter_100w_keep50_deltaW/deflation_stats.csv
+  # log_csv: outputs/deflated_llama3_blogs10_deltaW/deflation_stats.csv
+  # log_csv: outputs/deflated_llama3_blogs50_80_deltaW_3/deflation_stats.csv
+  # log_csv: output/deflated_lowacc_fake/deflation_stats.csv
+  # log_csv: output/deflated_lowacc_fake_from_base/deflation_stats.csv
+  log_csv: output/deflated_lowacc_real_3600_from_base/deflation_stats.csv
+  # log_csv: outputs/deflated_llama3_CCAT50_deltaW_2/deflation_stats.csv
+  # log_csv: outputs/deflated_Llama3_8B_blogtext_300w_100p_technology_deltaW/deflation_stats.csv
+  # Optional: persist computed bases for reuse/debugging.
+  # save_u_sem: stage_evaluation/u_sem_Qwen_deltaW.pt
+  # save_u_sem: stage_evaluation/u_sem_Mistral_deltaW.pt
+  # save_u_sem: stage_evaluation/u_sem_Gemma2_deltaW.pt
+  # save_u_sem: stage_evaluation/u_sem_Phi4mini_deltaW.pt
+  # save_u_sem: stage_evaluation/u_sem_Qwen25_7B_deltaW.pt
+  # save_u_sem: stage_evaluation/u_sem_Llama3_8B_reuter_100w_keep50_deltaW.pt
+  # save_u_sem: stage_evaluation/u_sem_llama3_blogs10_deltaW.pt
+  # save_u_sem: stage_evaluation/u_sem_llama3_blogs50_80_deltaW_3.pt
+  # save_u_sem: stage_evaluation/u_sem_lowacc_fake.pt
+  save_u_sem: stage_evaluation/u_sem_lowacc_real_3600_from_base.pt
+  # save_u_sem: stage_evaluation/u_sem_deflated_lowacc_from_base_Gemma.pt
+  # save_u_sem: stage_evaluation/u_sem_llama3_CCAT50_deltaW_2.pt
+  # save_u_sem: stage_evaluation/u_sem_Llama3_8B_blogtext_300w_100p_technology_deltaW.pt
+
+data:
+  # train_path: splits/blogs50/train.jsonl
+  # eval_path: splits/blogs50/eval.jsonl
+  # test_path: splits/blogs50/test.jsonl
+  # train_path: splits/blogs50_80/train.jsonl
+  # eval_path: splits/blogs50_80/eval.jsonl
+  # test_path: splits/blogs50_80/test.jsonl
+  train_path: splits/lowacc_mix/train_real_3600.jsonl
+  eval_path: splits/lowacc_mix/eval.jsonl
+  test_path: splits/lowacc_mix/test.jsonl
+  # train_path: splits/lowacc/train.jsonl
+  # eval_path: splits/lowacc/eval.jsonl
+  # test_path: splits/lowacc/test.jsonl
+  # train_path: splits/blogs10/train.jsonl
+  # eval_path: splits/blogs10/eval.jsonl
+  # test_path: splits/blogs10/test.jsonl
+  # train_path: splits/CCAT50/train.jsonl
+  # eval_path: splits/CCAT50/eval.jsonl
+  # test_path: splits/CCAT50/test.jsonl
+  # train_path: splits/imdb62_top10/train.jsonl
+  # eval_path: splits/imdb62_top10/eval.jsonl
+  # train_path: splits/reuter_c50_10authors/train.jsonl
+  # eval_path: splits/reuter_c50_10authors/eval.jsonl
+  # train_path: splits/reuter_c50_10authors_100w_keep50/train.jsonl
+  # eval_path: splits/reuter_c50_10authors_100w_keep50/eval.jsonl
+  # test_path: splits/reuter_c50_10authors_100w_keep50/test.jsonl
+  # --- IMDB (top10) ---
+  # train_path: splits/imdb62_top10/train.jsonl
+  # eval_path: splits/imdb62_top10/eval.jsonl
+  # test_path: splits/imdb62_top10/test.jsonl
+  # --- Blogtext (300w/100p, diverse 10 authors) ---
+  # train_path: splits/blogtext_10authors_300w_100p_diverse/train.jsonl
+  # eval_path: splits/blogtext_10authors_300w_100p_diverse/eval.jsonl
+  # test_path: splits/blogtext_10authors_300w_100p_diverse/test.jsonl
+  # --- Blogtext (300w/100p, Technology topic) ---
+  # train_path: splits/blogtext_10authors_300w_100p_technology/train.jsonl
+  # eval_path: splits/blogtext_10authors_300w_100p_technology/eval.jsonl
+  # test_path: splits/blogtext_10authors_300w_100p_technology/test.jsonl
+  text_field: text
+  label_field: author
+  max_seq_length: 1000
+  seed: 1234
+
+prompt:
+  system_prompt: >
+    You are an expert literary analyst. Identify the author of the provided passage based on their writing style instead of the content.
+    Answer with only the exact author name. 
+  # system_prompt: >
+  #   You are an expert literary analyst. Identify the author of the provided passage. Answer with only the exact author name.
+  # --- Llama-3 Instruct (header tokens) ---
+  # system_prompt: >
+  #   You are an expert literary analyst. Identify the author of the provided passage based on their writing style instead of the content.
+  #   Answer with only the exact user ID.
+  template: |
+    <|start_header_id|>system<|end_header_id|>
+    {system_prompt}
+    <|eot_id|><|start_header_id|>user<|end_header_id|>
+    Passage:
+    {passage}
+    Author:
+    <|eot_id|><|start_header_id|>assistant<|end_header_id|>
+  
+  # --- Mistral Instruct v0.3 ---
+  # template: |
+  #   <s>[INST] {system_prompt}
+  #
+  #   Passage:
+  #   {passage}
+  #   Author: [/INST]
+
+  # --- Qwen Instruct (ChatML) ---
+  # template: |
+  #   <|im_start|>system
+  #   {system_prompt}<|im_end|>
+  #   <|im_start|>user
+  #   Passage:
+  #   {passage}
+  #   Author:<|im_end|>
+  #   <|im_start|>assistant
+
+  # --- Gemma-2 IT ---
+  # template: |
+  #   <start_of_turn>user
+  #   {system_prompt}
+  
+  #   Passage:
+  #   {passage}
+  #   Author:
+  #   <end_of_turn>
+  #   <start_of_turn>model
+
+  # --- Phi-4 mini (use tokenizer.chat_template) ---
+  # template: auto
+  # --- Qwen2.5 Instruct (ChatML, optional) ---
+  # (Same as Qwen ChatML above; keep this block for easy toggling.)
+  answer_prefix: " "
+  # system_prompt: >
+  #   You are an expert literary analyst. Identify the author of the provided passage. Answer with only the exact user ID from the candidate list.
+  # template: |
+  #   <|start_header_id|>system<|end_header_id|>
+  #   {system_prompt}
+  #   <|eot_id|><|start_header_id|>user<|end_header_id|>
+  #   Candidates:
+  #   {author_list}
+  #   Passage:
+  #   {passage}
+  #   Author:
+  #   <|eot_id|><|start_header_id|>assistant<|end_header_id|>
+  # answer_prefix: " "
+
+training:
+  # output_dir: outputs/deflated_Qwen_CCAT_deltaW
+  # output_dir: outputs/deflated_Mistral_CCAT_deltaW
+  # output_dir: outputs/deflated_Gemma2_CCAT_deltaW
+  # output_dir: outputs/deflated_Phi4mini_CCAT_deltaW
+  # output_dir: outputs/deflated_Qwen25_7B_CCAT_deltaW
+  # output_dir: outputs/deflated_Llama3_8B_reuter_100w_keep50_deltaW
+  # output_dir: outputs/deflated_llama3_blogs10_deltaW
+  # output_dir: outputs/deflated_llama3_blogs50_80_deltaW_3
+  # output_dir: output/deflated_lowacc_fake
+  # output_dir: outputs/deflated_llama3_CCAT50_deltaW
+  # output_dir: outputs/deflated_llama3_CCAT50_deltaW_warmup
+  # output_dir: outputs/deflated_Llama3_8B_blogtext_300w_100p_technology_deltaW
+  # output_dir: output/deflated_lowacc_from_base_Gemma
+  # output_dir: output/deflated_lowacc_fake_from_base
+  output_dir: output/deflated_lowacc_real_3600_from_base
+  num_train_epochs: 4
+  per_device_train_batch_size: 12
+  per_device_eval_batch_size: 4
+  gradient_accumulation_steps: 2
+  learning_rate: 0.0002
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.05
+  weight_decay: 0.01
+  logging_steps: 10
+  eval_strategy: steps
+  eval_steps: 200
+  save_steps: 200
+  save_total_limit: 30
+  bf16: true
+  # run_name: deflated_Qwen_CCAT_deltaW
+  # run_name: deflated_Mistral_CCAT_deltaW
+  # run_name: deflated_Gemma2_CCAT_deltaW
+  # run_name: deflated_Phi4mini_CCAT_deltaW
+  # run_name: deflated_Qwen25_7B_CCAT_deltaW
+  # run_name: deflated_Llama3_8B_reuter_100w_keep50_deltaW
+  # run_name: deflated_llama3_blogs10_deltaW
+  # run_name: deflated_llama3_blogs50_80_deltaW_3
+  # run_name: deflated_lowacc_fake
+  # run_name: deflated_lowacc_from_base_Gemma
+  # run_name: deflated_llama3_CCAT50_deltaW
+  # run_name: deflated_llama3_CCAT50_deltaW_warmup
+  # run_name: deflated_Llama3_8B_blogtext_300w_100p_technology_deltaW
+  # run_name: deflated_lowacc_fake_from_base
+  run_name: deflated_lowacc_real_3600_from_base
+  report_to:
+    - wandb
+
+loss_logging:
+  # csv_path: outputs/deflated_from_800/loss_history.csv
+  # plot_path: outputs/deflated_from_800/loss_curve.png
+  # csv_path: outputs/deflated_two_layers_prompt/loss_history.csv
+  # plot_path: outputs/deflated_two_layers_prompt/loss_curve.png
+  # csv_path: outputs/deflated_llama_imdb/loss_history.csv
+  # plot_path: outputs/deflated_llama_imdb/loss_curve.png
+  # csv_path: outputs/deflated_Qwen_CCAT_deltaW/loss_history.csv
+  # plot_path: outputs/deflated_Qwen_CCAT_deltaW/loss_curve.png
+  # csv_path: outputs/deflated_Mistral_CCAT_deltaW/loss_history.csv
+  # plot_path: outputs/deflated_Mistral_CCAT_deltaW/loss_curve.png
+  # csv_path: outputs/deflated_Gemma2_CCAT_deltaW/loss_history.csv
+  # plot_path: outputs/deflated_Gemma2_CCAT_deltaW/loss_curve.png
+  # csv_path: outputs/deflated_Phi4mini_CCAT_deltaW/loss_history.csv
+  # plot_path: outputs/deflated_Phi4mini_CCAT_deltaW/loss_curve.png
+  # csv_path: outputs/deflated_Qwen25_7B_CCAT_deltaW/loss_history.csv
+  # plot_path: outputs/deflated_Qwen25_7B_CCAT_deltaW/loss_curve.png
+  # csv_path: outputs/deflated_Llama3_8B_reuter_100w_keep50_deltaW/loss_history.csv
+  # plot_path: outputs/deflated_Llama3_8B_reuter_100w_keep50_deltaW/loss_curve.png
+  # csv_path: outputs/deflated_llama3_blogs10_deltaW/loss_history.csv
+  # plot_path: outputs/deflated_llama3_blogs10_deltaW/loss_curve.png
+  # csv_path: outputs/deflated_llama3_blogs50_80_deltaW_3/loss_history.csv
+  # plot_path: outputs/deflated_llama3_blogs50_80_deltaW_3/loss_curve.png
+  # csv_path: outputs/output/deflated_lowacc_fake/loss_history.csv
+  # plot_path: outputs/output/deflated_lowacc_fake/loss_curve.png
+  # csv_path: outputs/output/deflated_lowacc_from_base_Gemma/loss_history.csv
+  # plot_path: outputs/output/deflated_lowacc_from_base_Gemma/loss_curve.png
+  # csv_path: outputs/deflated_llama3_CCAT50_deltaW/loss_history.csv
+  # plot_path: outputs/deflated_llama3_CCAT50_deltaW/loss_curve.png
+  # csv_path: outputs/deflated_llama3_CCAT50_deltaW_warmup/loss_history.csv
+  # plot_path: outputs/deflated_llama3_CCAT50_deltaW_warmup/loss_curve.png
+  # csv_path: outputs/deflated_Llama3_8B_blogtext_300w_100p_technology_deltaW/loss_history.csv
+  # plot_path: outputs/deflated_Llama3_8B_blogtext_300w_100p_technology_deltaW/loss_curve.png
+  # csv_path: outputs/output/deflated_lowacc_fake_from_base/loss_history.csv
+  # plot_path: outputs/output/deflated_lowacc_fake_from_base/loss_curve.png
+  csv_path: outputs/output/deflated_lowacc_real_3600_from_base/loss_history.csv
+  plot_path: outputs/output/deflated_lowacc_real_3600_from_base/loss_curve.png
