@@ -1,0 +1,290 @@
+model:
+  # --- Llama-3 8B Instruct (new, for 100w dataset) ---
+  name: meta-llama/Llama-3.1-8B-Instruct
+  trust_remote_code: false
+  max_seq_length: 1000
+
+  # --- Qwen 3 (optional) ---
+  # name: Qwen/Qwen3-4B-Instruct-2507
+  # trust_remote_code: true
+  # max_seq_length: 1000
+
+  # --- Mistral (optional) ---
+  # name: mistralai/Mistral-7B-Instruct-v0.3
+  # trust_remote_code: false
+  # max_seq_length: 1000
+
+  # --- Gemma-2 (optional) ---
+  # name: google/gemma-2-9b-it
+  # trust_remote_code: false
+  # max_seq_length: 1000
+
+  # --- New (Phi-4 mini) ---
+  # name: microsoft/Phi-4-mini-instruct
+  # trust_remote_code: false
+  # max_seq_length: 1000
+  # device_map:
+  #   "": 0
+  # torch_dtype: float16
+
+  # --- Qwen2.5 7B Instruct (optional) ---
+  # name: Qwen/Qwen2.5-7B-Instruct
+  # trust_remote_code: false
+  # max_seq_length: 1000
+  # device_map:
+  #   "": 0
+  # torch_dtype: bfloat16
+
+quantization:
+  load_in_4bit: true
+  # bnb_4bit_compute_dtype: bfloat16
+  bnb_4bit_compute_dtype: bfloat16
+  bnb_4bit_quant_type: nf4
+  bnb_4bit_use_double_quant: true
+
+lora:
+  r: 8
+  lora_alpha: 16
+  lora_dropout: 0.1
+  target_modules:
+    # --- Llama/Qwen/Gemma-style attention projections (old) ---
+    - q_proj
+    - k_proj
+    - v_proj
+    # - o_proj
+    # - gate_proj
+    # - up_proj
+    # - down_proj
+
+    # --- Phi-3/4-style (common naming) ---
+    # - qkv_proj
+    # - o_proj
+    # - gate_up_proj
+    # - down_proj
+
+    # --- Qwen2.5 / Llama / Gemma-2 style ---
+    # - q_proj
+    # - v_proj
+
+data:
+  # train_path: splits/lowacc_authors/train.jsonl
+  # eval_path: splits/lowacc_authors/eval.jsonl
+  # test_path: splits/lowacc_authors/test.jsonl
+  # train_path: splits/lowacc_authors_10authors_100w_keep50/train.jsonl
+  # eval_path: splits/lowacc_authors_10authors_100w_keep50/eval.jsonl
+  # test_path: splits/lowacc_authors_10authors_100w_keep50/test.jsonl
+  # train_path: splits/reuter_c50_10authors/train.jsonl
+  # eval_path: splits/reuter_c50_10authors/eval.jsonl
+  # test_path: splits/reuter_c50_10authors/test.jsonl
+  # --- New 100-word splits ---
+  # train_path: splits/reuter_c50_10authors_100w_keep50/train.jsonl
+  # eval_path: splits/reuter_c50_10authors_100w_keep50/eval.jsonl
+  # test_path: splits/reuter_c50_10authors_100w_keep50/test.jsonl
+  # --- Blogtext (300w/100p, diverse 10 authors) ---
+  # train_path: splits/blogtext_10authors_300w_100p_diverse/train.jsonl
+  # eval_path: splits/blogtext_10authors_300w_100p_diverse/eval.jsonl
+  # test_path: splits/blogtext_10authors_300w_100p_diverse/test.jsonl
+  # --- Blogtext (300w/100p, Technology topic) ---
+  # train_path: splits/blogtext_10authors_300w_100p_technology/train.jsonl
+  # eval_path: splits/blogtext_10authors_300w_100p_technology/eval.jsonl
+  # test_path: splits/blogtext_10authors_300w_100p_technology/test.jsonl
+  # train_path: splits/reuter_c50_10authors_100w_all/train.jsonl
+  # eval_path: splits/reuter_c50_10authors_100w_all/eval.jsonl
+  # test_path: splits/reuter_c50_10authors_100w_all/test.jsonl
+  # train_path: splits/blogs50/train.jsonl
+  # eval_path: splits/blogs50/eval.jsonl
+  # test_path: splits/blogs50/test.jsonl
+  # train_path: splits/blogs10/train.jsonl
+  # eval_path: splits/blogs10/eval.jsonl
+  # test_path: splits/blogs10/test.jsonl
+  # train_path: splits/blogs50_80/train.jsonl
+  # eval_path: splits/blogs50_80/eval.jsonl
+  # test_path: splits/blogs50_80/test.jsonl
+  # train_path: splits/CCAT50/train.jsonl
+  # eval_path: splits/CCAT50/eval.jsonl
+  # test_path: splits/CCAT50/test.jsonl
+  # eval_subset_per_author: 20
+  #train_path: splits/lowacc_mix/train_generated.jsonl
+  # train_path: splits/lowacc_mix/train_deflated_star_300_expanded27.jsonl
+  # train_path: splits/lowacc_mix/train_real_3600.jsonl
+  # train_path: splits/lowacc_mix/train_fake_3600.jsonl
+  # train_path: splits/lowacc_mix/train_real_unbalanced_v4.jsonl
+  # train_path: splits/lowacc_mix/train_real_compensated_120_verified_v4.jsonl
+  # train_path: splits/lowacc_mix/train_real_compensated_120_random_v4.jsonl
+  train_path: splits/lowacc_mix/train_fake_12600.jsonl
+  #train_path: splits/lowacc_mix/train_deflated_gemma2_evalonly_300_expanded27.jsonl
+  #train_path: splits/lowacc_mix/train_stage2_cpt_300_expanded27.jsonl
+  eval_path: splits/lowacc_mix/eval.jsonl
+  test_path: splits/lowacc_mix/test.jsonl
+  eval_require_distinct_titles: true
+  seed: 1234
+
+training:
+  # output_dir: outputs/Qwen_CCAT
+  # output_dir: outputs/Mistral_CCAT
+  # output_dir: outputs/Gemma2_CCAT
+  # output_dir: outputs/Phi4mini_CCAT
+  # output_dir: outputs/Qwen25_7B_CCAT
+  # output_dir: outputs/llama3_CCAT_100w_keep50
+  # output_dir: outputs/Gemma2_lowacc_evaluator
+  # output_dir: outputs/Phi4_lowacc_evaluator
+  # output_dir: outputs/llama3_blogtext_300w_100p_technology
+  # output_dir: outputs/llama3_blogs50_80_full
+  # output_dir: outputs/llama3_blogs10
+  # output_dir: outputs/lowacc_real
+  # output_dir: outputs/lowacc_fake
+  # output_dir: outputs/lowacc_mix_star
+  # output_dir: outputs/lowacc_real_3600
+  # output_dir: outputs/lowacc_fake_3600
+  # output_dir: outputs/lowacc_real_unbalanced
+  # output_dir: outputs/lowacc_real_compensated_verified
+  # output_dir: outputs/lowacc_real_compensated_random
+  output_dir: outputs/lowacc_fake_12600
+  # output_dir: outputs/lowacc_mix_deflated_gemma
+  # output_dir: outputs/lowacc_mix_deflated_llama
+  # output_dir: outputs/llama3_CCAT50_8
+  # output_dir: outputs/llama3_imdb
+  num_train_epochs: 4
+  per_device_train_batch_size: 12
+  gradient_accumulation_steps: 2
+  per_device_eval_batch_size: 1
+  learning_rate: 0.0002
+  weight_decay: 0.01
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.05
+  logging_steps: 10
+  eval_steps: 200
+  save_steps: 200
+  save_total_limit: 6
+  bf16: true
+  gradient_checkpointing: true
+  max_grad_norm: 0.3
+  eval_strategy: steps
+  save_strategy: steps
+  logging_strategy: steps
+  pad_to_multiple_of: 8
+
+generation:
+  max_new_tokens: 8
+
+loss_logging:
+  # csv_path: outputs/Qwen_lowacc/loss_history.csv
+  # plot_path: outputs/Qwen_lowacc/loss_curve.png
+  # csv_path: outputs/Qwen_CCAT/loss_history.csv
+  # plot_path: outputs/Qwen_CCAT/loss_curve.png
+  # csv_path: outputs/Mistral_CCAT/loss_history.csv
+  # plot_path: outputs/Mistral_CCAT/loss_curve.png
+  # csv_path: outputs/Gemma2_CCAT/loss_history.csv
+  # plot_path: outputs/Gemma2_CCAT/loss_curve.png
+  # csv_path: outputs/Phi4mini_CCAT/loss_history.csv
+  # plot_path: outputs/Phi4mini_CCAT/loss_curve.png
+  # csv_path: outputs/Qwen25_7B_CCAT/loss_history.csv
+  # plot_path: outputs/Qwen25_7B_CCAT/loss_curve.png
+  # csv_path: outputs/llama3_CCAT_100w_keep50/loss_history.csv
+  # plot_path: outputs/llama3_CCAT_100w_keep50/loss_curve.png
+  # csv_path: outputs/Gemma2_lowacc_evaluator/loss_history.csv
+  # plot_path: outputs/Gemma2_lowacc_evaluator/loss_curve.png
+  # csv_path: outputs/Phi4_lowacc_evaluator/loss_history.csv
+  # plot_path: outputs/Phi4_lowacc_evaluator/loss_curve.png
+  # csv_path: outputs/llama3_blogtext_300w_100p_technology/loss_history.csv
+  # plot_path: outputs/llama3_blogtext_300w_100p_technology/loss_curve.png
+  # csv_path: outputs/llama_CCAT/loss_history.csv
+  # plot_path: outputs/llama_CCAT/loss_curve.png
+  # csv_path: outputs/llama_imdb/loss_history.csv
+  # plot_path: outputs/llama_imdb/loss_curve.png
+  # csv_path: outputs/llama3_blogs50_80_full/loss_history.csv
+  # plot_path: outputs/llama3_blogs50_80_full/loss_curve.png
+  # csv_path: outputs/llama3_CCAT50_8/loss_history.csv
+  # plot_path: outputs/llama3_CCAT50_8/loss_curve.png
+  # csv_path: outputs/llama3_blogs10/loss_history.csv
+  # plot_path: outputs/llama3_blogs10/loss_curve.png
+  # csv_path: outputs/lowacc_real/loss_history.csv
+  # plot_path: outputs/lowacc_real/loss_curve.png
+  # csv_path: outputs/lowacc_fake/loss_history.csv
+  # plot_path: outputs/lowacc_fake/loss_curve.png
+  # csv_path: outputs/lowacc_mix_star/loss_history.csv
+  # plot_path: outputs/lowacc_mix_star/loss_curve.png
+  # csv_path: outputs/lowacc_mix_deflated_gemma/loss_history.csv
+  # plot_path: outputs/lowacc_mix_deflated_gemma/loss_curve.png
+  # csv_path: outputs/lowacc_mix_deflated_llama/loss_history.csv
+  # plot_path: outputs/lowacc_mix_deflated_llama/loss_curve.png
+  # csv_path: outputs/lowacc_real_3600/loss_history.csv
+  # plot_path: outputs/lowacc_real_3600/loss_curve.png
+  # csv_path: outputs/lowacc_fake_3600/loss_history.csv
+  # plot_path: outputs/lowacc_fake_3600/loss_curve.png
+  # csv_path: outputs/lowacc_real_unbalanced/loss_history.csv
+  # plot_path: outputs/lowacc_real_unbalanced/loss_curve.png
+  # csv_path: outputs/lowacc_real_compensated_verified/loss_history.csv
+  # plot_path: outputs/lowacc_real_compensated_verified/loss_curve.png
+  # csv_path: outputs/lowacc_real_compensated_random/loss_history.csv
+  # plot_path: outputs/lowacc_real_compensated_random/loss_curve.png
+  csv_path: outputs/lowacc_fake_12600/loss_history.csv
+  plot_path: outputs/lowacc_fake_12600/loss_curve.png
+
+prompt:
+  # system_prompt: >
+  #   You are an expert literary analyst. Identify the author of the provided passage. Answer with only the exact author name.
+  system_prompt: >
+    You are an expert literary analyst. Identify the author of the provided passage based on their writing style instead of the content.
+    Answer with only the exact author name. 
+  # system_prompt: >
+  #   You are an expert literary analyst. Identify the author of the provided passage. Answer with only the exact user ID.
+  # system_prompt: >
+  #   You are an expert literary analyst. Identify the author of the provided passage based on their writing style instead of the content.
+  #   Answer with only the exact user ID.
+  # --- Llama-3 Instruct (header tokens) ---
+  template: |
+    <|start_header_id|>system<|end_header_id|>
+    {system_prompt}
+    <|eot_id|><|start_header_id|>user<|end_header_id|>
+    Passage:
+    {passage}
+    Author:
+    <|eot_id|><|start_header_id|>assistant<|end_header_id|>
+
+  # --- Mistral Instruct v0.3 ---
+  # template: |
+  #   <s>[INST] {system_prompt}
+  #
+  #   Passage:
+  #   {passage}
+  #   Author: [/INST]
+
+  # --- Qwen Instruct (ChatML) ---
+  # template: |
+  #   <|im_start|>system
+  #   {system_prompt}<|im_end|>
+  #   <|im_start|>user
+  #   Passage:
+  #   {passage}
+  #   Author:<|im_end|>
+  #   <|im_start|>assistant
+
+  # --- Gemma-2 IT ---
+  # template: |
+  #   <start_of_turn>user
+  #   {system_prompt}
+  
+  #   Passage:
+  #   {passage}
+  #   Author:
+  #   <end_of_turn>
+  #   <start_of_turn>model
+
+  # --- Phi-4 mini (use tokenizer.chat_template) ---
+  # template: auto
+
+  # --- Qwen2.5 Instruct (ChatML) ---
+  # template: |
+  #   <|im_start|>system
+  #   {system_prompt}<|im_end|>
+  #   <|im_start|>user
+  #   Passage:
+  #   {passage}
+  #   Author:<|im_end|>
+  #   <|im_start|>assistant
+  answer_prefix: " "
+
+  # Candidates:
+  # {author_list}
+#from the candidate list

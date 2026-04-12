@@ -1,0 +1,115 @@
+model:
+  name: meta-llama/Llama-3.1-8B-Instruct
+  stage1_adapter_path: outputs/llama3_atomic_cpt_stage1 #outputs/Llama3_8B_atomic_cpt_stage1_lowacc
+  #stage2_adapter_path: outputs/llama3_lowacc_literary_style_gen
+  #stage2_adapter_path: outputs/deflated_Llama3_8B_lowacc_literary_gen_deltaW/adapter_deflated_stage2
+  #stage2_adapter_path: outputs_generator/llama3_lowacc_style_gen_with_summary
+  init_stage2_from_base: true
+  torch_dtype: bfloat16
+  attn_implementation: null
+  trust_remote_code: false
+  device_map: "auto"
+
+quantization:
+  load_in_4bit: true
+  bnb_4bit_compute_dtype: bfloat16
+  bnb_4bit_quant_type: nf4
+  bnb_4bit_use_double_quant: true
+
+lora:
+  r: 8
+  lora_alpha: 16
+  lora_dropout: 0.1
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+
+deflation:
+  basis_type: deltaW
+  basis_tol: 1e-6
+  include_module:
+    - q_proj
+    - k_proj
+    - v_proj
+  sample_every: 10
+  log_topk: 5
+  # log_csv: outputs_generator/deflated_llama3_lowacc_style_gen_with_summary_from_base/deflation_stats.csv
+  # save_u_sem: stage_evaluation/u_sem_Llama3_8B_lowacc_literary_genwith_summary_from_base.pt
+  # log_csv: outputs_generator/deflated_llama3_lowacc_style_gen_with_summary/deflation_stats.csv
+  # save_u_sem: stage_evaluation/u_sem_Llama3_8B_lowacc_literary_genwith_summary.pt
+  log_csv: outputs_generator/deflated_llama3_lowacc_style_gen_with_summary_from_base_1/deflation_stats.csv
+  save_u_sem: stage_evaluation/u_sem_Llama3_8B_lowacc_literary_genwith_summary_from_base_1.pt
+
+data:
+  train_path: splits/lowacc_authors/train.jsonl
+  eval_path: splits/lowacc_authors/eval.jsonl
+  test_path: splits/lowacc_authors/test.jsonl
+  summary_facts_path: splits/lowacc_authors/stage1_lowacc_atomic_facts_concat.jsonl
+  summary_field: content_pack
+  text_field: text
+  author_field: author
+  max_seq_length: 1024
+  seed: 1234
+
+# prompt:
+#   system_prompt: >
+#     You are a writing assistant that creates original literary paragraphs.
+#     Write a new paragraph in the style of the specified author. Do not copy the source text.
+#   template: |
+#     <|start_header_id|>system<|end_header_id|>
+#     {system_prompt}
+#     <|eot_id|><|start_header_id|>user<|end_header_id|>
+#     Author: {author}
+#     Task: Write a new literary paragraph (300-500 words).
+#     <|eot_id|><|start_header_id|>assistant<|end_header_id|>
+#   answer_prefix: ""
+
+prompt:
+  system_prompt: >
+    Write original text that emulates the target author's literary style. Output a paragraph around 700 words. 
+    Ensure your writing faithfully replicates the author's style, including tone, word choices, and sentence structure, etc.
+    Maintain consistency with the author's voice while accurately reflecting the details of the given summary.
+
+  template: |
+    <|start_header_id|>system<|end_header_id|>
+    {system_prompt}
+    <|eot_id|><|start_header_id|>user<|end_header_id|>
+    You are {author}. Write in your characteristic voice and literary mannerisms.
+    Summary: {content_pack}
+    Task: Write a paragraph based on the given summary.
+    <|eot_id|><|start_header_id|>assistant<|end_header_id|>
+  answer_prefix: ""
+
+
+training:
+  # output_dir: outputs_generator/deflated_llama3_lowacc_style_gen_with_summary_from_base
+  # output_dir: outputs_generator/deflated_llama3_lowacc_style_gen_with_summary
+  output_dir: outputs_generator/deflated_llama3_lowacc_style_gen_with_summary_from_base_1
+  num_train_epochs: 8
+  per_device_train_batch_size: 12
+  per_device_eval_batch_size: 4
+  gradient_accumulation_steps: 4
+  learning_rate: 0.0002
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.05
+  weight_decay: 0.01
+  logging_steps: 10
+  eval_strategy: steps
+  eval_steps: 200
+  save_steps: 200
+  save_total_limit: 20
+  bf16: true
+  # run_name: outputs_generator/deflated_llama3_lowacc_style_gen_with_summary_from_base
+  # run_name: outputs_generator/deflated_llama3_lowacc_style_gen_with_summary
+  run_name: outputs_generator/deflated_llama3_lowacc_style_gen_with_summary_from_base_1
+  report_to:
+    - wandb
+
+loss_logging:
+  # csv_path: outputs_generator/deflated_llama3_lowacc_style_gen_with_summary_from_base/loss_history.csv
+  # plot_path: outputs_generator/deflated_llama3_lowacc_style_gen_with_summary_from_base/loss_curve.png
+  # csv_path: outputs_generator/deflated_llama3_lowacc_style_gen_with_summary/loss_history.csv
+  # plot_path: outputs_generator/deflated_llama3_lowacc_style_gen_with_summary/loss_curve.png
+  csv_path: outputs_generator/deflated_llama3_lowacc_style_gen_with_summary_from_base_1/loss_history.csv
+  plot_path: outputs_generator/deflated_llama3_lowacc_style_gen_with_summary_from_base_1/loss_curve.png

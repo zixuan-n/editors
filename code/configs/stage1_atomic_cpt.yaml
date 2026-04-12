@@ -57,6 +57,10 @@ model:
   load_in_8bit: false
   bnb_4bit_compute_dtype: bfloat16
   device_map: "auto"
+  # --- Optional: start from an existing LoRA adapter ---
+  adapter_name_or_path: outputs/llama3_lowacc_lora
+  adapter_is_trainable: true   # true = continue training that adapter
+  merge_adapter: true          # true = merge adapter into base weights
 
 data:
   # train_path: stage1_CCAT_atomic_facts_concat.jsonl
@@ -67,7 +71,7 @@ data:
   # train_path: splits/blogs10/stage1_blogs10_atomic_facts_train_concat.jsonl
   # eval_path: splits/blogs10/stage1_blogs10_atomic_facts_eval_concat.jsonl
   # --- Lowacc mix ---
-  train_path: splits/lowacc_mix/stage1_lowacc_generated_atomic_facts_concat.jsonl
+  # train_path: splits/lowacc_mix/stage1_lowacc_generated_atomic_facts_concat.jsonl
   # --- Blogtext 50 (train/eval split) ---
   # train_path: splits/blogs50_80/stage1_blogs50_80_atomic_facts_train_concat.jsonl
   # eval_path: splits/blogs50_80/stage1_blogs50_80_atomic_facts_eval_concat.jsonl
@@ -83,6 +87,8 @@ data:
   # --- Blogtext (300w/100p, Technology topic) ---
   # train_path: stage1_blogtext_10authors_300w_100p_technology_atomic_facts_concat.jsonl
   # eval_path: stage1_blogtext_10authors_300w_100p_technology_atomic_facts_eval_concat.jsonl
+  train_path: splits/lowacc_authors/stage1_lowacc_atomic_facts_concat.jsonl
+  eval_path: splits/lowacc_authors/stage1_lowacc_atomic_facts_eval_concat.jsonl
   text_column: text
   preprocessing_num_workers: 4
   packing: false
@@ -92,6 +98,7 @@ data:
 
 lora:
   enabled: true
+  adapter_name: stage1  # name for the new adapter if stacking on an existing one
   r: 8
   lora_alpha: 16
   lora_dropout: 0.1
@@ -130,9 +137,10 @@ training:
   # output_dir: outputs/Phi4mini_atomic_cpt_stage1_blogs50
   # output_dir: outputs/llama3_atomic_cpt_stage1_blogs50_80
   # output_dir: outputs/llama3_atomic_cpt_stage1_blogs10
-  output_dir: outputs/llama3_atomic_cpt_stage1_lowacc_fake
+  #output_dir: outputs/llama3_atomic_cpt_stage1_lowacc_fake
+  output_dir: outputs/llama3_atomic_cpt_stage1_lowacc
   # output_dir: outputs/llama3_atomic_cpt_stage1_CCAT50
-  num_train_epochs: 5
+  num_train_epochs: 4
   per_device_train_batch_size: 12
   gradient_accumulation_steps: 2
   per_device_eval_batch_size: 1
@@ -163,7 +171,8 @@ training:
   # run_name: stage1_atomic_cpt_lowacc_gemma2
   # run_name: stage1_atomic_cpt_blogs50_80_llama3
   # run_name: stage1_atomic_cpt_blogs10_llama3
-  run_name: stage1_atomic_cpt_lowacc_fake_llama3
+  # run_name: stage1_atomic_cpt_lowacc_fake_llama3
+  run_name: stage1_atomic_cpt_lowacc_llama3
   # run_name: stage1_atomic_cpt_CCAT50_phi4mini
   # run_name: stage1_atomic_cpt_CCAT50_llama3
   # run_name: stage1_atomic_cpt_blogtext_300w_100p_technology_llama3_8b

@@ -12,8 +12,9 @@ model:
   # name: Qwen/Qwen2.5-7B-Instruct
   # --- New (Llama-3.1 8B Instruct) ---
   name: meta-llama/Llama-3.1-8B-Instruct
-  #init_stage2_from_base: false
-  init_stage2_from_base: true
+  init_stage2_from_base: false
+  # init_stage2_from_base: true
+  stage2_adapter_path: outputs/llama3_lowacc_lora
   #stage2_adapter_path: outputs/llama_CCAT  # path to the Stage-2 LoRA you want to continue
   # stage2_adapter_path: outputs/Qwen_CCAT
   # stage2_adapter_path: outputs/Mistral_CCAT
@@ -42,7 +43,8 @@ model:
   # stage1_adapter_path: outputs/llama3_atomic_cpt_stage1_blogs50
   # stage1_adapter_path: outputs/llama3_atomic_cpt_stage1_blogs10
   # stage1_adapter_path: outputs/llama3_atomic_cpt_stage1_lowacc_fake
-  stage1_adapter_path: outputs/llama3_atomic_cpt_stage1
+  # stage1_adapter_path: outputs/llama3_atomic_cpt_stage1
+  stage1_adapter_path: outputs/llama3_atomic_cpt_stage1_lowacc
   # stage1_adapter_path: outputs/llama3_atomic_cpt_stage1_CCAT50
   # stage1_adapter_path: outputs/Llama3_8B_atomic_cpt_stage1_blogtext_300w_100p_technology
   torch_dtype: bfloat16
@@ -83,6 +85,8 @@ deflation:
   # Build deflation bases from the Stage-1 adapter weights.
   # Options: lora_A (old behavior) or deltaW (more robust to LoRA factor rotations).
   basis_type: deltaW
+  # Orthonormalization method for bases: qr (default) or svd (more stable, slower).
+  basis_solver: svd
   basis_tol: 1e-6
   # Optional substring filter on Stage-1 module names when building bases.
   # Phi-3/4 include list (old):
@@ -110,7 +114,8 @@ deflation:
   # log_csv: outputs/deflated_llama3_blogs50_80_deltaW_3/deflation_stats.csv
   # log_csv: output/deflated_lowacc_fake/deflation_stats.csv
   # log_csv: output/deflated_lowacc_fake_from_base/deflation_stats.csv
-  log_csv: output/deflated_lowacc_real_3600_from_base/deflation_stats.csv
+  # log_csv: output/deflated_lowacc_from_base/deflation_stats.csv
+  log_csv: output/deflated_lowacc_from_W0_svd/deflation_stats.csv
   # log_csv: outputs/deflated_llama3_CCAT50_deltaW_2/deflation_stats.csv
   # log_csv: outputs/deflated_Llama3_8B_blogtext_300w_100p_technology_deltaW/deflation_stats.csv
   # Optional: persist computed bases for reuse/debugging.
@@ -123,7 +128,8 @@ deflation:
   # save_u_sem: stage_evaluation/u_sem_llama3_blogs10_deltaW.pt
   # save_u_sem: stage_evaluation/u_sem_llama3_blogs50_80_deltaW_3.pt
   # save_u_sem: stage_evaluation/u_sem_lowacc_fake.pt
-  save_u_sem: stage_evaluation/u_sem_lowacc_real_3600_from_base.pt
+  # save_u_sem: stage_evaluation/u_sem_lowacc_from_base.pt
+  save_u_sem: stage_evaluation/u_sem_lowacc_from_W0_svd.pt
   # save_u_sem: stage_evaluation/u_sem_deflated_lowacc_from_base_Gemma.pt
   # save_u_sem: stage_evaluation/u_sem_llama3_CCAT50_deltaW_2.pt
   # save_u_sem: stage_evaluation/u_sem_Llama3_8B_blogtext_300w_100p_technology_deltaW.pt
@@ -135,10 +141,14 @@ data:
   # train_path: splits/blogs50_80/train.jsonl
   # eval_path: splits/blogs50_80/eval.jsonl
   # test_path: splits/blogs50_80/test.jsonl
-  train_path: splits/lowacc_mix/train_real_3600.jsonl
-  eval_path: splits/lowacc_mix/eval.jsonl
-  test_path: splits/lowacc_mix/test.jsonl
+  # train_path: splits/lowacc_mix/train_real_3600.jsonl
+  # eval_path: splits/lowacc_mix/eval.jsonl
+  # test_path: splits/lowacc_mix/test.jsonl
+  train_path: splits/lowacc_authors/train.jsonl
+  eval_path: splits/lowacc_authors/eval.jsonl
+  test_path: splits/lowacc_authors/test.jsonl
   # train_path: splits/lowacc/train.jsonl
+  # # train_path: splits/lowacc/train.jsonl
   # eval_path: splits/lowacc/eval.jsonl
   # test_path: splits/lowacc/test.jsonl
   # train_path: splits/blogs10/train.jsonl
@@ -253,7 +263,8 @@ training:
   # output_dir: outputs/deflated_Llama3_8B_blogtext_300w_100p_technology_deltaW
   # output_dir: output/deflated_lowacc_from_base_Gemma
   # output_dir: output/deflated_lowacc_fake_from_base
-  output_dir: output/deflated_lowacc_real_3600_from_base
+  # output_dir: output/deflated_lowacc_from_base
+  output_dir: output/deflated_lowacc_from_W0_svd
   num_train_epochs: 4
   per_device_train_batch_size: 12
   per_device_eval_batch_size: 4
@@ -282,7 +293,8 @@ training:
   # run_name: deflated_llama3_CCAT50_deltaW_warmup
   # run_name: deflated_Llama3_8B_blogtext_300w_100p_technology_deltaW
   # run_name: deflated_lowacc_fake_from_base
-  run_name: deflated_lowacc_real_3600_from_base
+  # run_name: deflated_lowacc_from_base
+  run_name: deflated_lowacc_from_W0_svd
   report_to:
     - wandb
 
@@ -321,5 +333,7 @@ loss_logging:
   # plot_path: outputs/deflated_Llama3_8B_blogtext_300w_100p_technology_deltaW/loss_curve.png
   # csv_path: outputs/output/deflated_lowacc_fake_from_base/loss_history.csv
   # plot_path: outputs/output/deflated_lowacc_fake_from_base/loss_curve.png
-  csv_path: outputs/output/deflated_lowacc_real_3600_from_base/loss_history.csv
-  plot_path: outputs/output/deflated_lowacc_real_3600_from_base/loss_curve.png
+  # csv_path: outputs/output/deflated_lowacc_from_base/loss_history.csv
+  # plot_path: outputs/output/deflated_lowacc_from_base/loss_curve.png
+  csv_path: outputs/output/deflated_lowacc_from_W0_svd/loss_history.csv
+  plot_path: outputs/output/deflated_lowacc_from_W0_svd/loss_curve.png
