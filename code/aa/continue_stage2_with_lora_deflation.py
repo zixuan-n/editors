@@ -35,10 +35,23 @@ from transformers import (
     BitsAndBytesConfig,
 )
 from peft import LoraConfig, PeftModel, get_peft_model, prepare_model_for_kbit_training
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "configs"))
 from finetune_config_loader import load_stage2_config
 
 
 # -------------------- utils: IO --------------------
+def training_kwargs(values):
+    result = dict(values)
+    if "evaluation_strategy" in result:
+        result.setdefault("eval_strategy", result.pop("evaluation_strategy"))
+    result.setdefault("report_to", "none")
+    if "AA_REPORT_TO" in os.environ:
+        result["report_to"] = os.environ["AA_REPORT_TO"]
+    return result
+
+
 def read_jsonl(path: str) -> List[Dict[str, str]]:
     rows = []
     with open(path, "r", encoding="utf-8") as f:
@@ -162,7 +175,7 @@ class PadCollator:
             vals = []
             for f in feats:
                 x = f[k]
-                pad_val = self.pad_id if k != "labels" else -100
+                pad_val = {"input_ids": self.pad_id, "labels": -100, "attention_mask": 0}[k]
                 if len(x) < max_len:
                     x = torch.nn.functional.pad(x, (0, max_len - len(x)), value=pad_val)
                 vals.append(x)
@@ -269,10 +282,16 @@ class DeflationLoggingCallback(TrainerCallback):
             print(f"[Deflation] wrote summary CSV to {self.csv_path}")
 
 
-def orthonormal_columns(matrix: torch.Tensor, tol: float) -> Optional[torch.Tensor]:
+def orthonormal_columns(matrix: torch.Tensor, tol: float, method: str = "qr") -> Optional[torch.Tensor]:
     if matrix.numel() == 0:
         return None
     A = matrix.float()
+    if method == "svd":
+        U, S, _ = torch.linalg.svd(A.t(), full_matrices=False)
+        rank = int((S > tol).sum().item())
+        return U[:, :rank].contiguous() if rank else None
+    if method != "qr":
+        raise ValueError(f"Unknown basis solver: {method}")
     Q, R = torch.linalg.qr(A.t(), mode="reduced")
     if R.numel() == 0:
         return None
@@ -283,11 +302,17 @@ def orthonormal_columns(matrix: torch.Tensor, tol: float) -> Optional[torch.Tens
     return Q[:, :rank].contiguous()
 
 
-def orthonormal_col_basis(matrix: torch.Tensor, tol: float) -> Optional[torch.Tensor]:
+def orthonormal_col_basis(matrix: torch.Tensor, tol: float, method: str = "qr") -> Optional[torch.Tensor]:
     """Returns orthonormal columns spanning colspace(matrix). Output lives in R^{matrix.shape[0]}."""
     if matrix.numel() == 0:
         return None
     M = matrix.float()
+    if method == "svd":
+        U, S, _ = torch.linalg.svd(M, full_matrices=False)
+        rank = int((S > tol).sum().item())
+        return U[:, :rank].contiguous() if rank else None
+    if method != "qr":
+        raise ValueError(f"Unknown basis solver: {method}")
     Q, R = torch.linalg.qr(M, mode="reduced")
     if R.numel() == 0:
         return None
@@ -333,7 +358,11 @@ def build_stage1_bases(
     include: Optional[List[str]],
     basis_tol: float,
     basis_type: str = "lora_A",
+    basis_solver: str = "qr",
+    basis_rank_k: Optional[int] = None,
 ) -> Dict[str, torch.Tensor]:
+    if basis_rank_k is not None and (basis_rank_k < 1 or basis_solver != "svd"):
+        raise ValueError("basis_rank_k must be positive and requires basis_solver=svd")
     state = load_file(str(adapter_dir / "adapter_model.safetensors"), device="cpu")
     bases: Dict[str, torch.Tensor] = {}
     for key, tensor in state.items():
@@ -343,7 +372,7 @@ def build_stage1_bases(
         if include and not any(p in name for p in include):
             continue
         if basis_type == "lora_A":
-            U = orthonormal_columns(tensor, basis_tol)
+            U = orthonormal_columns(tensor, basis_tol, method=basis_solver)
             if U is not None:
                 bases[name] = U
             continue
@@ -353,15 +382,21 @@ def build_stage1_bases(
                 continue
             A_r_in, B_out_r, _ = orient_lora_weights(tensor, B)
             # Row space(deltaW) = Row space(B@A). Remove null(B) directions in rank-space first.
-            Q_r = orthonormal_col_basis(B_out_r.t(), basis_tol)  # (r, k)
+            Q_r = orthonormal_col_basis(B_out_r.t(), basis_tol, method=basis_solver)  # (r, k)
             if Q_r is None:
                 continue
             A_eff = (Q_r.t() @ A_r_in.float()).contiguous()  # (k, in)
-            U_in = orthonormal_columns(A_eff, basis_tol)  # (in, k2)
+            if basis_rank_k is not None:
+                # BA and R@A have identical right singular vectors when B=QR.
+                _, R = torch.linalg.qr(B_out_r.float(), mode="reduced")
+                A_eff = R @ A_r_in.float()
+            U_in = orthonormal_columns(A_eff, basis_tol, method=basis_solver)  # (in, k2)
             if U_in is not None:
                 bases[name] = U_in
             continue
         raise ValueError(f"Unknown basis_type={basis_type!r} (expected 'lora_A' or 'deltaW').")
+    if basis_rank_k is not None:
+        bases = {name: U[:, :basis_rank_k].contiguous() for name, U in bases.items()}
     if not bases:
         raise RuntimeError(
             f"No Stage-1 bases found under {adapter_dir}. "
@@ -492,6 +527,8 @@ def apply_overrides(cfg: SimpleNamespace, args: argparse.Namespace) -> SimpleNam
         "epochs",
         "save_u_sem",
         "basis_type",
+        "basis_solver",
+        "basis_rank_k",
         "deflation_sample_every",
         "deflation_log_topk",
         "deflation_log_csv",
@@ -513,7 +550,11 @@ def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(
         description="Continue Stage-2 style training with on-the-fly deflation derived from a Stage-1 adapter."
     )
-    ap.add_argument("--config", type=str, default="configs/stage2_style_sft.yaml", help="Optional YAML config path.")
+    ap.add_argument("--config", type=str, default="code/configs/aa/s2.yaml", help="Optional YAML config path.")
+    ap.add_argument("--model_variant", default=None, help="Model settings to select from the YAML (default: default_model).")
+    ap.add_argument("--dataset", default=None, help="Dataset settings to select from the YAML (default: default_dataset).")
+    ap.add_argument("--basis_solver", choices=["qr", "svd"], default=None)
+    ap.add_argument("--basis_rank_k", type=int, default=None)
     ap.add_argument("--model_id", default=None)
     ap.add_argument("--stage1_adapter", default=None, help="Path to the atomic-facts LoRA.")
     ap.add_argument("--stage2_adapter", default=None, help="Path to the style LoRA checkpoint to continue training.")
@@ -575,7 +616,7 @@ def parse_args() -> argparse.Namespace:
 
 def main():
     args = parse_args()
-    cfg = load_stage2_config(args.config)
+    cfg = load_stage2_config(args.config, args.model_variant, args.dataset)
     apply_overrides(cfg, args)
     missing = [name for name in ("train_jsonl",) if not getattr(cfg, name)]
     if missing:
@@ -583,7 +624,8 @@ def main():
     if not cfg.stage2_adapter and not cfg.init_stage2_from_base:
         raise ValueError("Missing stage2_adapter; set model.init_stage2_from_base to start from base.")
 
-    random.seed(cfg.seed)
+    from transformers import set_seed
+    set_seed(cfg.seed)
 
     tok = AutoTokenizer.from_pretrained(cfg.model_id, use_fast=True)
     if tok.pad_token is None:
@@ -591,20 +633,21 @@ def main():
 
     quant = None
     if cfg.use_4bit:
-        quant = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_compute_dtype=torch.bfloat16,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_use_double_quant=True,
-        )
+        quant_args = dict(cfg.quant_args)
+        quant_args["load_in_4bit"] = True
+        dtype_name = quant_args.get("bnb_4bit_compute_dtype", "bfloat16")
+        quant_args["bnb_4bit_compute_dtype"] = getattr(torch, dtype_name) if isinstance(dtype_name, str) else dtype_name
+        quant = BitsAndBytesConfig(**quant_args)
     base = AutoModelForCausalLM.from_pretrained(
         cfg.model_id,
-        device_map={"": 0},
-        torch_dtype=None if cfg.use_4bit else torch.bfloat16,
+        device_map=cfg.device_map,
+        trust_remote_code=cfg.trust_remote_code,
+        torch_dtype=None if cfg.use_4bit else getattr(torch, cfg.torch_dtype),
         quantization_config=quant,
         low_cpu_mem_usage=True,
     )
-    base = prepare_model_for_kbit_training(base, use_gradient_checkpointing=True)
+    if cfg.use_4bit:
+        base = prepare_model_for_kbit_training(base, use_gradient_checkpointing=True)
     base.config.use_cache = False
 
     if cfg.stage2_adapter:
@@ -632,6 +675,8 @@ def main():
         include=cfg.include_module,
         basis_tol=cfg.basis_tol,
         basis_type=getattr(cfg, "basis_type", "lora_A"),
+        basis_solver=cfg.basis_solver,
+        basis_rank_k=cfg.basis_rank_k,
     )
     if cfg.save_u_sem:
         save_path = Path(cfg.save_u_sem)
@@ -669,7 +714,7 @@ def main():
     )
     collate = PadCollator(tok.pad_token_id)
 
-    targs = TrainingArguments(
+    targs_values = dict(
         output_dir=cfg.out_dir,
         per_device_train_batch_size=cfg.batch,
         per_device_eval_batch_size=cfg.eval_batch,
@@ -693,6 +738,13 @@ def main():
         label_smoothing_factor=0.0,
     )
 
+    # Keep all standard TrainingArguments supplied by the YAML, with CLI overrides.
+    extra = {k: v for k, v in cfg.training_args.items() if k not in {"batch_size", "grad_accum", "lr", "epochs", "stage2_adapter_path", "init_stage2_from_base"}}
+    targs_values.update(extra)
+    targs_values.update(output_dir=cfg.out_dir, learning_rate=cfg.lr, num_train_epochs=cfg.epochs,
+                        per_device_train_batch_size=cfg.batch, gradient_accumulation_steps=cfg.grad_accum, seed=cfg.seed)
+    targs = TrainingArguments(**training_kwargs(targs_values))
+
     callbacks = []
     if (topk and int(topk) > 0) or csv_path:
         if defl_stats is None:
@@ -704,7 +756,7 @@ def main():
         train_dataset=ds_tr,
         eval_dataset=ds_va,
         data_collator=collate,
-        tokenizer=tok,
+        processing_class=tok,
         callbacks=callbacks,
     )
 

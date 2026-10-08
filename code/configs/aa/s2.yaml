@@ -1,0 +1,866 @@
+# AA training with semantic deflation.
+# Select with --dataset DATASET --model_variant MODEL.
+# Shared fields apply to every dataset; dataset overrides are applied before model overrides.
+# Models: Llama3, Gemma2, Mistral, Phi4mini (only listed combinations are available).
+default_dataset: CCAT50
+default_model: Llama3
+model:
+  device_map:
+    ? ''
+    : 0
+  trust_remote_code: false
+quantization:
+  load_in_4bit: true
+  bnb_4bit_quant_type: nf4
+  bnb_4bit_use_double_quant: true
+lora:
+  r: 8
+  lora_alpha: 16
+  lora_dropout: 0.1
+data:
+  seed: 1234
+prompt:
+  answer_prefix: ' '
+deflation:
+  basis_type: deltaW
+  basis_solver: svd
+training:
+  per_device_eval_batch_size: 4
+  gradient_accumulation_steps: 2
+  learning_rate: 0.0002
+  warmup_ratio: 0.05
+  weight_decay: 0.01
+  lr_scheduler_type: cosine
+  bf16: true
+  logging_steps: 10
+
+dataset_variants:
+  # CCAT10: use these data paths, outputs, and model settings only for CCAT10.
+  # Available models: Llama3.
+  CCAT10:
+    model:
+      name: meta-llama/Llama-3.1-8B-Instruct
+      torch_dtype: bfloat16
+      stage2_adapter_path: outputs/aa/Llama3_CCAT10/s0
+      stage1_adapter_path: outputs/aa/Llama3_CCAT10/s1
+    quantization:
+      bnb_4bit_compute_dtype: bfloat16
+    lora:
+      target_modules:
+      - q_proj
+      - k_proj
+      - v_proj
+    data:
+      train_path: data/CCAT10/train.jsonl
+      eval_path: data/CCAT10/eval.jsonl
+      test_path: data/CCAT10/test.jsonl
+      max_seq_length: 1000
+    prompt:
+      system_prompt: You are an expert literary analyst. Identify the author of the provided passage based on their writing style instead of the content. Answer with only the exact author name.
+      template: auto
+    deflation:
+      basis_tol: 1.0e-06
+      include_module:
+      - q_proj
+      - k_proj
+      - v_proj
+      save_u_sem: outputs/aa/Llama3_CCAT10/s2/deflation_basis.pt
+      log_topk: 0
+    training:
+      num_train_epochs: 4
+      per_device_train_batch_size: 12
+      gradient_checkpointing: true
+      gradient_checkpointing_kwargs:
+        use_reentrant: false
+      eval_strategy: epoch
+      save_strategy: epoch
+      save_total_limit: 2
+      report_to: none
+      seed: 1234
+      output_dir: outputs/aa/Llama3_CCAT10/s2
+    model_variants:
+      Llama3: {}
+
+  # CCAT50: use these data paths, outputs, and model settings only for CCAT50.
+  # Available models: Llama3, Gemma2, Mistral, Phi4mini.
+  CCAT50:
+    data:
+      train_path: data/CCAT50/train.jsonl
+      eval_path: data/CCAT50/eval.jsonl
+      test_path: data/CCAT50/test.jsonl
+      max_seq_length: 1000
+    training:
+      num_train_epochs: 4
+    model_variants:
+      # meta-llama/Llama-3.1-8B-Instruct on CCAT50: 4 epochs, max length 1000.
+      Llama3:
+        model:
+          name: meta-llama/Llama-3.1-8B-Instruct
+          torch_dtype: bfloat16
+          stage2_adapter_path: outputs/aa/Llama3_CCAT50/s0
+          stage1_adapter_path: outputs/aa/Llama3_CCAT50/s1
+        quantization:
+          bnb_4bit_compute_dtype: bfloat16
+        lora:
+          target_modules:
+          - q_proj
+          - k_proj
+          - v_proj
+        prompt:
+          system_prompt: You are an expert literary analyst. Identify the author of the provided passage based on their writing style instead of the content. Answer with only the exact author name.
+          template: auto
+        deflation:
+          basis_tol: 1.0e-06
+          include_module:
+          - q_proj
+          - k_proj
+          - v_proj
+          save_u_sem: outputs/aa/Llama3_CCAT50/s2/deflation_basis.pt
+          log_topk: 0
+        training:
+          per_device_train_batch_size: 12
+          gradient_checkpointing: true
+          gradient_checkpointing_kwargs:
+            use_reentrant: false
+          eval_strategy: epoch
+          save_strategy: epoch
+          save_total_limit: 2
+          report_to: none
+          seed: 1234
+          output_dir: outputs/aa/Llama3_CCAT50/s2
+      # google/gemma-2-9b-it on CCAT50: 4 epochs, max length 1000.
+      Gemma2:
+        model:
+          name: google/gemma-2-9b-it
+          init_stage2_from_base: false
+          stage2_adapter_path: outputs/cross_model_evaluators/s0/Gemma2_CCAT50
+          stage1_adapter_path: outputs/cross_model_evaluators/s1/Gemma2_stage1_CCAT50
+          torch_dtype: bfloat16
+          attn_implementation: null
+        quantization:
+          bnb_4bit_compute_dtype: bfloat16
+        lora:
+          target_modules:
+          - q_proj
+          - k_proj
+          - v_proj
+        deflation:
+          basis_tol: 1e-6
+          include_module:
+          - q_proj
+          - k_proj
+          - v_proj
+          sample_every: 10
+          log_topk: 5
+          log_csv: outputs/cross_model_evaluators/s2/Gemma2_stage2_CCAT50_deltaW/deflation_stats.csv
+          save_u_sem: stage_evaluation/u_sem_Gemma2_CCAT50_deltaW.pt
+        data:
+          text_field: text
+          label_field: author
+        prompt:
+          system_prompt: "You are an expert literary analyst. Identify the author of the provided passage based on their writing style instead of the content. Answer with only the exact author name. \n"
+          template: |
+            <start_of_turn>user
+            {system_prompt}
+
+            Passage:
+            {passage}
+            Author:
+            <end_of_turn>
+            <start_of_turn>model
+        training:
+          output_dir: outputs/cross_model_evaluators/s2/Gemma2_stage2_CCAT50_deltaW
+          per_device_train_batch_size: 6
+          eval_strategy: steps
+          eval_steps: 200
+          save_steps: 200
+          save_total_limit: 30
+          run_name: Gemma2_CCAT50_stage2_deltaW
+          report_to:
+          - wandb
+        loss_logging:
+          csv_path: outputs/cross_model_evaluators/s2/Gemma2_stage2_CCAT50_deltaW/loss_history.csv
+          plot_path: outputs/cross_model_evaluators/s2/Gemma2_stage2_CCAT50_deltaW/loss_curve.png
+      # mistralai/Mistral-7B-Instruct-v0.3 on CCAT50: 4 epochs, max length 1000.
+      Mistral:
+        model:
+          name: mistralai/Mistral-7B-Instruct-v0.3
+          init_stage2_from_base: false
+          stage2_adapter_path: outputs/cross_model_evaluators/s0/Mistral_CCAT50
+          stage1_adapter_path: outputs/cross_model_evaluators/s1/Mistral_stage1_CCAT50
+          torch_dtype: bfloat16
+          attn_implementation: null
+        quantization:
+          bnb_4bit_compute_dtype: bfloat16
+        lora:
+          target_modules:
+          - q_proj
+          - k_proj
+          - v_proj
+        deflation:
+          basis_tol: 1e-6
+          include_module:
+          - q_proj
+          - k_proj
+          - v_proj
+          sample_every: 10
+          log_topk: 5
+          log_csv: outputs/cross_model_evaluators/s2/Mistral_stage2_CCAT50_deltaW/deflation_stats.csv
+          save_u_sem: stage_evaluation/u_sem_Mistral_CCAT50_deltaW.pt
+        data:
+          text_field: text
+          label_field: author
+        prompt:
+          system_prompt: "You are an expert literary analyst. Identify the author of the provided passage based on their writing style instead of the content. Answer with only the exact author name. \n"
+          template: |-
+            <s>[INST] {system_prompt}
+
+            Passage:
+            {passage}
+            Author: [/INST]
+        training:
+          output_dir: outputs/cross_model_evaluators/s2/Mistral_stage2_CCAT50_deltaW
+          per_device_train_batch_size: 8
+          eval_strategy: steps
+          eval_steps: 200
+          save_steps: 200
+          save_total_limit: 30
+          run_name: Mistral_CCAT50_stage2_deltaW
+          report_to:
+          - wandb
+        loss_logging:
+          csv_path: outputs/cross_model_evaluators/s2/Mistral_stage2_CCAT50_deltaW/loss_history.csv
+          plot_path: outputs/cross_model_evaluators/s2/Mistral_stage2_CCAT50_deltaW/loss_curve.png
+      # microsoft/Phi-4-mini-instruct on CCAT50: 4 epochs, max length 1000.
+      Phi4mini:
+        model:
+          name: microsoft/Phi-4-mini-instruct
+          init_stage2_from_base: false
+          stage2_adapter_path: outputs/cross_model_evaluators/s0/Phi4mini_CCAT50
+          stage1_adapter_path: outputs/cross_model_evaluators/s1/Phi4mini_stage1_CCAT50
+          torch_dtype: float16
+          attn_implementation: null
+        quantization:
+          bnb_4bit_compute_dtype: float16
+        lora:
+          target_modules:
+          - qkv_proj
+        deflation:
+          basis_tol: 1e-6
+          include_module:
+          - qkv_proj
+          sample_every: 10
+          log_topk: 5
+          log_csv: outputs/cross_model_evaluators/s2/Phi4mini_stage2_CCAT50_deltaW/deflation_stats.csv
+          save_u_sem: stage_evaluation/u_sem_Phi4mini_CCAT50_deltaW.pt
+        data:
+          text_field: text
+          label_field: author
+        prompt:
+          system_prompt: "You are an expert literary analyst. Identify the author of the provided passage based on their writing style instead of the content. Answer with only the exact author name. \n"
+          template: auto
+        training:
+          output_dir: outputs/cross_model_evaluators/s2/Phi4mini_stage2_CCAT50_deltaW
+          per_device_train_batch_size: 6
+          eval_strategy: steps
+          eval_steps: 200
+          save_steps: 200
+          save_total_limit: 30
+          run_name: Phi4mini_CCAT50_stage2_deltaW
+          report_to:
+          - wandb
+        loss_logging:
+          csv_path: outputs/cross_model_evaluators/s2/Phi4mini_stage2_CCAT50_deltaW/loss_history.csv
+          plot_path: outputs/cross_model_evaluators/s2/Phi4mini_stage2_CCAT50_deltaW/loss_curve.png
+
+  # Blogs10: use these data paths, outputs, and model settings only for Blogs10.
+  # Available models: Llama3, Gemma2, Mistral, Phi4mini.
+  Blogs10:
+    data:
+      train_path: data/Blogs10/train.jsonl
+      eval_path: data/Blogs10/eval.jsonl
+      test_path: data/Blogs10/test.jsonl
+    model_variants:
+      # meta-llama/Llama-3.1-8B-Instruct on Blogs10: 2 epochs, max length 1000.
+      Llama3:
+        model:
+          name: meta-llama/Llama-3.1-8B-Instruct
+          torch_dtype: bfloat16
+          stage2_adapter_path: outputs/aa/Llama3_Blogs10/s0
+          stage1_adapter_path: outputs/aa/Llama3_Blogs10/s1
+        quantization:
+          bnb_4bit_compute_dtype: bfloat16
+        lora:
+          target_modules:
+          - q_proj
+          - k_proj
+          - v_proj
+        data:
+          max_seq_length: 1000
+        prompt:
+          system_prompt: You are an expert literary analyst. Identify the author of the provided passage based on their writing style instead of the content. Answer with only the exact author name.
+          template: auto
+        deflation:
+          basis_tol: 1.0e-06
+          include_module:
+          - q_proj
+          - k_proj
+          - v_proj
+          save_u_sem: outputs/aa/Llama3_Blogs10/s2/deflation_basis.pt
+          log_topk: 0
+        training:
+          num_train_epochs: 2
+          per_device_train_batch_size: 12
+          gradient_checkpointing: true
+          gradient_checkpointing_kwargs:
+            use_reentrant: false
+          eval_strategy: epoch
+          save_strategy: epoch
+          save_total_limit: 2
+          report_to: none
+          seed: 1234
+          output_dir: outputs/aa/Llama3_Blogs10/s2
+      # google/gemma-2-9b-it on Blogs10: 4 epochs, max length 384.
+      Gemma2:
+        model:
+          name: google/gemma-2-9b-it
+          init_stage2_from_base: false
+          stage2_adapter_path: outputs/cross_model_evaluators/s0/Gemma2_Blogs10
+          stage1_adapter_path: outputs/cross_model_evaluators/s1/Gemma2_stage1_Blogs10
+          torch_dtype: bfloat16
+          attn_implementation: flash_attention_2
+        quantization:
+          bnb_4bit_compute_dtype: bfloat16
+        lora:
+          target_modules:
+          - q_proj
+          - k_proj
+          - v_proj
+        deflation:
+          basis_tol: 1e-6
+          include_module:
+          - q_proj
+          - k_proj
+          - v_proj
+          sample_every: 10
+          log_topk: 5
+          log_csv: outputs/cross_model_evaluators/s2/Gemma2_stage2_Blogs10_deltaW/deflation_stats.csv
+          save_u_sem: stage_evaluation/u_sem_Gemma2_Blogs10_deltaW.pt
+        data:
+          text_field: text
+          label_field: author
+          max_seq_length: 384
+        prompt:
+          system_prompt: "You are an expert literary analyst. Identify the author of the provided passage based on their writing style instead of the content. Answer with only the exact author name. \n"
+          template: |
+            <start_of_turn>user
+            {system_prompt}
+
+            Passage:
+            {passage}
+            Author:
+            <end_of_turn>
+            <start_of_turn>model
+        training:
+          output_dir: outputs/cross_model_evaluators/s2/Gemma2_stage2_Blogs10_deltaW
+          num_train_epochs: 4
+          per_device_train_batch_size: 6
+          eval_strategy: steps
+          eval_steps: 200
+          save_steps: 200
+          save_total_limit: 30
+          run_name: Gemma2_Blogs10_stage2_deltaW
+          report_to:
+          - wandb
+        loss_logging:
+          csv_path: outputs/cross_model_evaluators/s2/Gemma2_stage2_Blogs10_deltaW/loss_history.csv
+          plot_path: outputs/cross_model_evaluators/s2/Gemma2_stage2_Blogs10_deltaW/loss_curve.png
+      # mistralai/Mistral-7B-Instruct-v0.3 on Blogs10: 4 epochs, max length 384.
+      Mistral:
+        model:
+          name: mistralai/Mistral-7B-Instruct-v0.3
+          init_stage2_from_base: false
+          stage2_adapter_path: outputs/cross_model_evaluators/s0/Mistral_Blogs10
+          stage1_adapter_path: outputs/cross_model_evaluators/s1/Mistral_stage1_Blogs10
+          torch_dtype: bfloat16
+          attn_implementation: flash_attention_2
+        quantization:
+          bnb_4bit_compute_dtype: bfloat16
+        lora:
+          target_modules:
+          - q_proj
+          - k_proj
+          - v_proj
+        deflation:
+          basis_tol: 1e-6
+          include_module:
+          - q_proj
+          - k_proj
+          - v_proj
+          sample_every: 10
+          log_topk: 5
+          log_csv: outputs/cross_model_evaluators/s2/Mistral_stage2_Blogs10_deltaW/deflation_stats.csv
+          save_u_sem: stage_evaluation/u_sem_Mistral_Blogs10_deltaW.pt
+        data:
+          text_field: text
+          label_field: author
+          max_seq_length: 384
+        prompt:
+          system_prompt: "You are an expert literary analyst. Identify the author of the provided passage based on their writing style instead of the content. Answer with only the exact author name. \n"
+          template: |-
+            <s>[INST] {system_prompt}
+
+            Passage:
+            {passage}
+            Author: [/INST]
+        training:
+          output_dir: outputs/cross_model_evaluators/s2/Mistral_stage2_Blogs10_deltaW
+          num_train_epochs: 4
+          per_device_train_batch_size: 8
+          eval_strategy: steps
+          eval_steps: 200
+          save_steps: 200
+          save_total_limit: 30
+          run_name: Mistral_Blogs10_stage2_deltaW
+          report_to:
+          - wandb
+        loss_logging:
+          csv_path: outputs/cross_model_evaluators/s2/Mistral_stage2_Blogs10_deltaW/loss_history.csv
+          plot_path: outputs/cross_model_evaluators/s2/Mistral_stage2_Blogs10_deltaW/loss_curve.png
+      # microsoft/Phi-4-mini-instruct on Blogs10: 4 epochs, max length 384.
+      Phi4mini:
+        model:
+          name: microsoft/Phi-4-mini-instruct
+          init_stage2_from_base: false
+          stage2_adapter_path: outputs/cross_model_evaluators/s0/Phi4mini_Blogs10
+          stage1_adapter_path: outputs/cross_model_evaluators/s1/Phi4mini_stage1_Blogs10
+          torch_dtype: float16
+          attn_implementation: flash_attention_2
+        quantization:
+          bnb_4bit_compute_dtype: float16
+        lora:
+          target_modules:
+          - qkv_proj
+        deflation:
+          basis_tol: 1e-6
+          include_module:
+          - qkv_proj
+          sample_every: 10
+          log_topk: 5
+          log_csv: outputs/cross_model_evaluators/s2/Phi4mini_stage2_Blogs10_deltaW/deflation_stats.csv
+          save_u_sem: stage_evaluation/u_sem_Phi4mini_Blogs10_deltaW.pt
+        data:
+          text_field: text
+          label_field: author
+          max_seq_length: 384
+        prompt:
+          system_prompt: "You are an expert literary analyst. Identify the author of the provided passage based on their writing style instead of the content. Answer with only the exact author name. \n"
+          template: auto
+        training:
+          output_dir: outputs/cross_model_evaluators/s2/Phi4mini_stage2_Blogs10_deltaW
+          num_train_epochs: 4
+          per_device_train_batch_size: 6
+          eval_strategy: steps
+          eval_steps: 200
+          save_steps: 200
+          save_total_limit: 30
+          run_name: Phi4mini_Blogs10_stage2_deltaW
+          report_to:
+          - wandb
+        loss_logging:
+          csv_path: outputs/cross_model_evaluators/s2/Phi4mini_stage2_Blogs10_deltaW/loss_history.csv
+          plot_path: outputs/cross_model_evaluators/s2/Phi4mini_stage2_Blogs10_deltaW/loss_curve.png
+
+  # Blogs50: use these data paths, outputs, and model settings only for Blogs50.
+  # Available models: Llama3, Gemma2, Mistral, Phi4mini.
+  Blogs50:
+    data:
+      train_path: data/Blogs50/train.jsonl
+      eval_path: data/Blogs50/eval.jsonl
+      test_path: data/Blogs50/test.jsonl
+    training:
+      num_train_epochs: 2
+    model_variants:
+      # meta-llama/Llama-3.1-8B-Instruct on Blogs50: 2 epochs, max length 1000.
+      Llama3:
+        model:
+          name: meta-llama/Llama-3.1-8B-Instruct
+          torch_dtype: bfloat16
+          stage2_adapter_path: outputs/aa/Llama3_Blogs50/s0
+          stage1_adapter_path: outputs/aa/Llama3_Blogs50/s1
+        quantization:
+          bnb_4bit_compute_dtype: bfloat16
+        lora:
+          target_modules:
+          - q_proj
+          - k_proj
+          - v_proj
+        data:
+          max_seq_length: 1000
+        prompt:
+          system_prompt: You are an expert literary analyst. Identify the author of the provided passage based on their writing style instead of the content. Answer with only the exact author name.
+          template: auto
+        deflation:
+          basis_tol: 1.0e-06
+          include_module:
+          - q_proj
+          - k_proj
+          - v_proj
+          save_u_sem: outputs/aa/Llama3_Blogs50/s2/deflation_basis.pt
+          log_topk: 0
+        training:
+          per_device_train_batch_size: 12
+          gradient_checkpointing: true
+          gradient_checkpointing_kwargs:
+            use_reentrant: false
+          eval_strategy: epoch
+          save_strategy: epoch
+          save_total_limit: 2
+          report_to: none
+          seed: 1234
+          output_dir: outputs/aa/Llama3_Blogs50/s2
+      # google/gemma-2-9b-it on Blogs50: 2 epochs, max length 384.
+      Gemma2:
+        model:
+          name: google/gemma-2-9b-it
+          init_stage2_from_base: false
+          stage2_adapter_path: outputs/cross_model_evaluators/s0/Gemma2_Blogs50
+          stage1_adapter_path: outputs/cross_model_evaluators/s1/Gemma2_stage1_Blogs50
+          torch_dtype: bfloat16
+          attn_implementation: flash_attention_2
+        quantization:
+          bnb_4bit_compute_dtype: bfloat16
+        lora:
+          target_modules:
+          - q_proj
+          - k_proj
+          - v_proj
+        deflation:
+          basis_tol: 1e-6
+          include_module:
+          - q_proj
+          - k_proj
+          - v_proj
+          sample_every: 10
+          log_topk: 5
+          log_csv: outputs/cross_model_evaluators/s2/Gemma2_stage2_Blogs50_deltaW/deflation_stats.csv
+          save_u_sem: stage_evaluation/u_sem_Gemma2_Blogs50_deltaW.pt
+        data:
+          text_field: text
+          label_field: author
+          max_seq_length: 384
+        prompt:
+          system_prompt: "You are an expert literary analyst. Identify the author of the provided passage based on their writing style instead of the content. Answer with only the exact author name. \n"
+          template: |
+            <start_of_turn>user
+            {system_prompt}
+
+            Passage:
+            {passage}
+            Author:
+            <end_of_turn>
+            <start_of_turn>model
+        training:
+          output_dir: outputs/cross_model_evaluators/s2/Gemma2_stage2_Blogs50_deltaW
+          per_device_train_batch_size: 6
+          eval_strategy: steps
+          eval_steps: 200
+          save_steps: 200
+          save_total_limit: 30
+          run_name: Gemma2_Blogs50_stage2_deltaW
+          report_to:
+          - wandb
+        loss_logging:
+          csv_path: outputs/cross_model_evaluators/s2/Gemma2_stage2_Blogs50_deltaW/loss_history.csv
+          plot_path: outputs/cross_model_evaluators/s2/Gemma2_stage2_Blogs50_deltaW/loss_curve.png
+      # mistralai/Mistral-7B-Instruct-v0.3 on Blogs50: 2 epochs, max length 384.
+      Mistral:
+        model:
+          name: mistralai/Mistral-7B-Instruct-v0.3
+          init_stage2_from_base: false
+          stage2_adapter_path: outputs/cross_model_evaluators/s0/Mistral_Blogs50
+          stage1_adapter_path: outputs/cross_model_evaluators/s1/Mistral_stage1_Blogs50
+          torch_dtype: bfloat16
+          attn_implementation: flash_attention_2
+        quantization:
+          bnb_4bit_compute_dtype: bfloat16
+        lora:
+          target_modules:
+          - q_proj
+          - k_proj
+          - v_proj
+        deflation:
+          basis_tol: 1e-6
+          include_module:
+          - q_proj
+          - k_proj
+          - v_proj
+          sample_every: 10
+          log_topk: 5
+          log_csv: outputs/cross_model_evaluators/s2/Mistral_stage2_Blogs50_deltaW/deflation_stats.csv
+          save_u_sem: stage_evaluation/u_sem_Mistral_Blogs50_deltaW.pt
+        data:
+          text_field: text
+          label_field: author
+          max_seq_length: 384
+        prompt:
+          system_prompt: "You are an expert literary analyst. Identify the author of the provided passage based on their writing style instead of the content. Answer with only the exact author name. \n"
+          template: |-
+            <s>[INST] {system_prompt}
+
+            Passage:
+            {passage}
+            Author: [/INST]
+        training:
+          output_dir: outputs/cross_model_evaluators/s2/Mistral_stage2_Blogs50_deltaW
+          per_device_train_batch_size: 8
+          eval_strategy: steps
+          eval_steps: 200
+          save_steps: 200
+          save_total_limit: 30
+          run_name: Mistral_Blogs50_stage2_deltaW
+          report_to:
+          - wandb
+        loss_logging:
+          csv_path: outputs/cross_model_evaluators/s2/Mistral_stage2_Blogs50_deltaW/loss_history.csv
+          plot_path: outputs/cross_model_evaluators/s2/Mistral_stage2_Blogs50_deltaW/loss_curve.png
+      # microsoft/Phi-4-mini-instruct on Blogs50: 2 epochs, max length 1000.
+      Phi4mini:
+        model:
+          name: microsoft/Phi-4-mini-instruct
+          init_stage2_from_base: false
+          stage2_adapter_path: outputs/cross_model_evaluators/s0/Phi4mini_Blogs50
+          stage1_adapter_path: outputs/cross_model_evaluators/s1/Phi4mini_stage1_Blogs50
+          torch_dtype: float16
+          attn_implementation: null
+        quantization:
+          bnb_4bit_compute_dtype: float16
+        lora:
+          target_modules:
+          - qkv_proj
+        deflation:
+          basis_tol: 1e-6
+          include_module:
+          - qkv_proj
+          sample_every: 10
+          log_topk: 5
+          log_csv: outputs/cross_model_evaluators/s2/Phi4mini_stage2_Blogs50_deltaW/deflation_stats.csv
+          save_u_sem: stage_evaluation/u_sem_Phi4mini_Blogs50_deltaW.pt
+        data:
+          text_field: text
+          label_field: author
+          max_seq_length: 1000
+        prompt:
+          system_prompt: "You are an expert literary analyst. Identify the author of the provided passage based on their writing style instead of the content. Answer with only the exact author name. \n"
+          template: auto
+        training:
+          output_dir: outputs/cross_model_evaluators/s2/Phi4mini_stage2_Blogs50_deltaW
+          per_device_train_batch_size: 6
+          eval_strategy: steps
+          eval_steps: 200
+          save_steps: 200
+          save_total_limit: 30
+          run_name: Phi4mini_Blogs50_stage2_deltaW
+          report_to:
+          - wandb
+        loss_logging:
+          csv_path: outputs/cross_model_evaluators/s2/Phi4mini_stage2_Blogs50_deltaW/loss_history.csv
+          plot_path: outputs/cross_model_evaluators/s2/Phi4mini_stage2_Blogs50_deltaW/loss_curve.png
+
+  # Gutenberg30: use these data paths, outputs, and model settings only for Gutenberg30.
+  # Available models: Llama3, Gemma2, Mistral, Phi4mini.
+  Gutenberg30:
+    data:
+      train_path: data/Gutenberg30/train.jsonl
+      eval_path: data/Gutenberg30/eval.jsonl
+      test_path: data/Gutenberg30/test.jsonl
+    model_variants:
+      # meta-llama/Llama-3.1-8B-Instruct on Gutenberg30: 2 epochs, max length 1000.
+      Llama3:
+        model:
+          name: meta-llama/Llama-3.1-8B-Instruct
+          torch_dtype: bfloat16
+          stage2_adapter_path: outputs/aa/Llama3_Gutenberg30/s0
+          stage1_adapter_path: outputs/aa/Llama3_Gutenberg30/s1
+        quantization:
+          bnb_4bit_compute_dtype: bfloat16
+        lora:
+          target_modules:
+          - q_proj
+          - k_proj
+          - v_proj
+        data:
+          max_seq_length: 1000
+        prompt:
+          system_prompt: You are an expert literary analyst. Identify the author of the provided passage based on their writing style instead of the content. Answer with only the exact author name.
+          template: auto
+        deflation:
+          basis_tol: 1.0e-06
+          include_module:
+          - q_proj
+          - k_proj
+          - v_proj
+          save_u_sem: outputs/aa/Llama3_Gutenberg30/s2/deflation_basis.pt
+          log_topk: 0
+        training:
+          num_train_epochs: 2
+          per_device_train_batch_size: 12
+          gradient_checkpointing: true
+          gradient_checkpointing_kwargs:
+            use_reentrant: false
+          eval_strategy: epoch
+          save_strategy: epoch
+          save_total_limit: 2
+          report_to: none
+          seed: 1234
+          output_dir: outputs/aa/Llama3_Gutenberg30/s2
+      # google/gemma-2-9b-it on Gutenberg30: 4 epochs, max length 1024.
+      Gemma2:
+        model:
+          name: google/gemma-2-9b-it
+          init_stage2_from_base: false
+          stage2_adapter_path: outputs/cross_model_evaluators/s0/Gemma2_Gutenberg30
+          stage1_adapter_path: outputs/cross_model_evaluators/s1/Gemma2_stage1_Gutenberg30
+          torch_dtype: bfloat16
+          attn_implementation: flash_attention_2
+        quantization:
+          bnb_4bit_compute_dtype: bfloat16
+        lora:
+          target_modules:
+          - q_proj
+          - k_proj
+          - v_proj
+        deflation:
+          basis_tol: 1e-6
+          include_module:
+          - q_proj
+          - k_proj
+          - v_proj
+          sample_every: 10
+          log_topk: 5
+          log_csv: outputs/cross_model_evaluators/s2/Gemma2_stage2_Gutenberg30_deltaW/deflation_stats.csv
+          save_u_sem: stage_evaluation/u_sem_Gemma2_Gutenberg30_deltaW.pt
+        data:
+          text_field: text
+          label_field: author
+          max_seq_length: 1024
+        prompt:
+          system_prompt: "You are an expert literary analyst. Identify the author of the provided passage based on their writing style instead of the content. Answer with only the exact author name. \n"
+          template: |
+            <start_of_turn>user
+            {system_prompt}
+
+            Passage:
+            {passage}
+            Author:
+            <end_of_turn>
+            <start_of_turn>model
+        training:
+          output_dir: outputs/cross_model_evaluators/s2/Gemma2_stage2_Gutenberg30_deltaW
+          num_train_epochs: 4
+          per_device_train_batch_size: 6
+          eval_strategy: steps
+          eval_steps: 200
+          save_steps: 200
+          save_total_limit: 30
+          run_name: Gemma2_Gutenberg30_stage2_deltaW
+          report_to:
+          - wandb
+        loss_logging:
+          csv_path: outputs/cross_model_evaluators/s2/Gemma2_stage2_Gutenberg30_deltaW/loss_history.csv
+          plot_path: outputs/cross_model_evaluators/s2/Gemma2_stage2_Gutenberg30_deltaW/loss_curve.png
+      # mistralai/Mistral-7B-Instruct-v0.3 on Gutenberg30: 4 epochs, max length 1000.
+      Mistral:
+        model:
+          name: mistralai/Mistral-7B-Instruct-v0.3
+          init_stage2_from_base: false
+          stage2_adapter_path: outputs/cross_model_evaluators/s0/Mistral_Gutenberg30
+          stage1_adapter_path: outputs/cross_model_evaluators/s1/Mistral_stage1_Gutenberg30
+          torch_dtype: bfloat16
+          attn_implementation: null
+        quantization:
+          bnb_4bit_compute_dtype: bfloat16
+        lora:
+          target_modules:
+          - q_proj
+          - k_proj
+          - v_proj
+        deflation:
+          basis_tol: 1e-6
+          include_module:
+          - q_proj
+          - k_proj
+          - v_proj
+          sample_every: 10
+          log_topk: 5
+          log_csv: outputs/cross_model_evaluators/s2/Mistral_stage2_Gutenberg30_deltaW/deflation_stats.csv
+          save_u_sem: stage_evaluation/u_sem_Mistral_Gutenberg30_deltaW.pt
+        data:
+          text_field: text
+          label_field: author
+          max_seq_length: 1000
+        prompt:
+          system_prompt: "You are an expert literary analyst. Identify the author of the provided passage based on their writing style instead of the content. Answer with only the exact author name. \n"
+          template: |-
+            <s>[INST] {system_prompt}
+
+            Passage:
+            {passage}
+            Author: [/INST]
+        training:
+          output_dir: outputs/cross_model_evaluators/s2/Mistral_stage2_Gutenberg30_deltaW
+          num_train_epochs: 4
+          per_device_train_batch_size: 8
+          eval_strategy: steps
+          eval_steps: 200
+          save_steps: 200
+          save_total_limit: 30
+          run_name: Mistral_Gutenberg30_stage2_deltaW
+          report_to:
+          - wandb
+        loss_logging:
+          csv_path: outputs/cross_model_evaluators/s2/Mistral_stage2_Gutenberg30_deltaW/loss_history.csv
+          plot_path: outputs/cross_model_evaluators/s2/Mistral_stage2_Gutenberg30_deltaW/loss_curve.png
+      # microsoft/Phi-4-mini-instruct on Gutenberg30: 4 epochs, max length 1000.
+      Phi4mini:
+        model:
+          name: microsoft/Phi-4-mini-instruct
+          init_stage2_from_base: false
+          stage2_adapter_path: outputs/cross_model_evaluators/s0/Phi4mini_Gutenberg30
+          stage1_adapter_path: outputs/cross_model_evaluators/s1/Phi4mini_stage1_Gutenberg30
+          torch_dtype: float16
+          attn_implementation: null
+        quantization:
+          bnb_4bit_compute_dtype: float16
+        lora:
+          target_modules:
+          - qkv_proj
+        deflation:
+          basis_tol: 1e-6
+          include_module:
+          - qkv_proj
+          sample_every: 10
+          log_topk: 5
+          log_csv: outputs/cross_model_evaluators/s2/Phi4mini_stage2_Gutenberg30_deltaW/deflation_stats.csv
+          save_u_sem: stage_evaluation/u_sem_Phi4mini_Gutenberg30_deltaW.pt
+        data:
+          text_field: text
+          label_field: author
+          max_seq_length: 1000
+        prompt:
+          system_prompt: "You are an expert literary analyst. Identify the author of the provided passage based on their writing style instead of the content. Answer with only the exact author name. \n"
+          template: auto
+        training:
+          output_dir: outputs/cross_model_evaluators/s2/Phi4mini_stage2_Gutenberg30_deltaW
+          num_train_epochs: 4
+          per_device_train_batch_size: 6
+          eval_strategy: steps
+          eval_steps: 200
+          save_steps: 200
+          save_total_limit: 30
+          run_name: Phi4mini_Gutenberg30_stage2_deltaW
+          report_to:
+          - wandb
+        loss_logging:
+          csv_path: outputs/cross_model_evaluators/s2/Phi4mini_stage2_Gutenberg30_deltaW/loss_history.csv
+          plot_path: outputs/cross_model_evaluators/s2/Phi4mini_stage2_Gutenberg30_deltaW/loss_curve.png

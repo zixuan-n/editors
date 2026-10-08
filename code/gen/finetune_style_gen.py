@@ -13,7 +13,9 @@ import csv
 import json
 import os
 import random
+import sys
 from collections import defaultdict
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Dict, Iterable, List, Optional, Sequence
 
@@ -32,6 +34,8 @@ from transformers import (
     TrainingArguments,
 )
 
+CODE_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(CODE_DIR / "configs"))
 from finetune_config_loader import load_style_gen_config
 
 try:
@@ -41,6 +45,16 @@ except ImportError:  # pragma: no cover
 
 
 DEFAULT_SYSTEM_PROMPT = None
+
+
+def training_kwargs(values):
+    result = dict(values)
+    if "evaluation_strategy" in result:
+        result.setdefault("eval_strategy", result.pop("evaluation_strategy"))
+    result.setdefault("report_to", "none")
+    if "AA_REPORT_TO" in os.environ:
+        result["report_to"] = os.environ["AA_REPORT_TO"]
+    return result
 
 
 class _SafeDict(dict):
@@ -295,7 +309,7 @@ class CausalLMDataCollator:
         pad_token_id = self.tokenizer.pad_token_id
         if pad_token_id is None:
             raise ValueError("Tokenizer pad_token_id must be set for padding.")
-        batch_labels = batch_labels.masked_fill(batch_labels == pad_token_id, -100)
+        batch_labels = batch_labels.masked_fill(batch_inputs["attention_mask"] == 0, -100)
         batch_inputs["labels"] = batch_labels
         return batch_inputs
 
@@ -351,7 +365,9 @@ def load_model_and_tokenizer(cfg: SimpleNamespace):
         return dtype_name
 
     quant_cfg = None
-    if cfg.quant_args:
+    if cfg.quant_args and (
+        cfg.quant_args.get("load_in_4bit", False) or cfg.quant_args.get("load_in_8bit", False)
+    ):
         quant_kwargs = dict(cfg.quant_args)
         dtype_key = "bnb_4bit_compute_dtype"
         if dtype_key in quant_kwargs and isinstance(quant_kwargs[dtype_key], str):
@@ -414,8 +430,7 @@ def load_model_and_tokenizer(cfg: SimpleNamespace):
 def build_training_arguments(cfg: SimpleNamespace) -> TrainingArguments:
     return TrainingArguments(
         output_dir=cfg.output_dir,
-        report_to=["tensorboard"],
-        **cfg.training_args,
+        **training_kwargs(cfg.training_args),
     )
 
 
@@ -426,8 +441,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config",
         type=str,
-        # default="configs/reuter_c50_10authors_style_gen.yaml",
-        default="configs/lowacc_authors_style_gen.yaml",
+        default="code/configs/generation/Llama3_Gutenberg30_s0.yaml",
         help="Path to the YAML configuration file.",
     )
     parser.add_argument(
@@ -516,6 +530,7 @@ def main() -> None:
     training_args = build_training_arguments(cfg)
     if getattr(training_args, "gradient_checkpointing", False):
         model.config.use_cache = False
+        model.enable_input_require_grads()
 
     data_collator = CausalLMDataCollator(
         tokenizer,
@@ -531,13 +546,14 @@ def main() -> None:
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         data_collator=data_collator,
         callbacks=callbacks,
     )
 
     trainer.train()
     trainer.save_model(cfg.output_dir)
+    tokenizer.save_pretrained(cfg.output_dir)
     trainer.save_state()
 
     if cfg.loss_plot_path and cfg.loss_log_path:

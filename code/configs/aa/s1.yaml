@@ -1,0 +1,574 @@
+# Atomic-fact diagnostic training (Stage 1).
+# Select with --dataset DATASET --model_variant MODEL.
+# Shared fields apply to every dataset; dataset overrides are applied before model overrides.
+# Models: Llama3, Gemma2, Mistral, Phi4mini (only listed combinations are available).
+default_dataset: CCAT50
+default_model: Llama3
+model:
+  trust_remote_code: false
+  device_map:
+    ? ''
+    : 0
+  load_in_4bit: true
+lora:
+  r: 8
+  lora_alpha: 16
+  lora_dropout: 0.1
+  enabled: true
+  bias: none
+  task_type: CAUSAL_LM
+data:
+  text_column: text
+  seed: 1234
+training:
+  gradient_accumulation_steps: 2
+  learning_rate: 0.0002
+  warmup_ratio: 0.05
+  weight_decay: 0.01
+  gradient_checkpointing: true
+  gradient_checkpointing_kwargs:
+    use_reentrant: false
+  logging_steps: 10
+  seed: 1234
+
+dataset_variants:
+  # CCAT10: use these data paths, outputs, and model settings only for CCAT10.
+  # Available models: Llama3.
+  CCAT10:
+    model:
+      model_name_or_path: meta-llama/Llama-3.1-8B-Instruct
+      torch_dtype: bfloat16
+      bnb_4bit_compute_dtype: bfloat16
+      bnb_4bit_quant_type: nf4
+      bnb_4bit_use_double_quant: true
+    lora:
+      target_modules:
+      - q_proj
+      - k_proj
+      - v_proj
+    data:
+      train_path: data/CCAT10/stage1_atomic_facts_train.jsonl
+      eval_path: data/CCAT10/stage1_atomic_facts_eval.jsonl
+      max_seq_length: 1000
+      packing: false
+      preprocessing_num_workers: 1
+    training:
+      num_train_epochs: 2
+      per_device_train_batch_size: 12
+      per_device_eval_batch_size: 4
+      lr_scheduler_type: cosine
+      bf16: true
+      eval_strategy: epoch
+      save_strategy: epoch
+      save_total_limit: 2
+      report_to: none
+      output_dir: outputs/aa/Llama3_CCAT10/s1
+    model_variants:
+      Llama3: {}
+
+  # CCAT50: use these data paths, outputs, and model settings only for CCAT50.
+  # Available models: Llama3, Gemma2, Mistral, Phi4mini.
+  CCAT50:
+    data:
+      train_path: data/CCAT50/stage1_CCAT50_atomic_facts_train_concat.jsonl
+      eval_path: data/CCAT50/stage1_CCAT50_atomic_facts_eval_concat.jsonl
+      packing: false
+    model_variants:
+      # meta-llama/Llama-3.1-8B-Instruct on CCAT50: 2 epochs, max length 1000.
+      Llama3:
+        model:
+          model_name_or_path: meta-llama/Llama-3.1-8B-Instruct
+          torch_dtype: bfloat16
+          bnb_4bit_compute_dtype: bfloat16
+          bnb_4bit_quant_type: nf4
+          bnb_4bit_use_double_quant: true
+        lora:
+          target_modules:
+          - q_proj
+          - k_proj
+          - v_proj
+        data:
+          max_seq_length: 1000
+          preprocessing_num_workers: 1
+        training:
+          num_train_epochs: 2
+          per_device_train_batch_size: 12
+          per_device_eval_batch_size: 4
+          lr_scheduler_type: cosine
+          bf16: true
+          eval_strategy: epoch
+          save_strategy: epoch
+          save_total_limit: 2
+          report_to: none
+          output_dir: outputs/aa/Llama3_CCAT50/s1
+      # google/gemma-2-9b-it on CCAT50: 4 epochs, max length 768.
+      Gemma2:
+        model:
+          model_name_or_path: google/gemma-2-9b-it
+          torch_dtype: bfloat16
+          attn_implementation: null
+          load_in_8bit: false
+          bnb_4bit_compute_dtype: bfloat16
+          adapter_name_or_path: outputs/cross_model_evaluators/s0/Gemma2_CCAT50
+          adapter_is_trainable: true
+          merge_adapter: true
+        data:
+          preprocessing_num_workers: 4
+          max_seq_length: 768
+          shuffle: true
+        lora:
+          adapter_name: stage1
+          target_modules:
+          - q_proj
+          - k_proj
+          - v_proj
+        training:
+          output_dir: outputs/cross_model_evaluators/s1/Gemma2_stage1_CCAT50
+          num_train_epochs: 4
+          per_device_train_batch_size: 4
+          per_device_eval_batch_size: 1
+          logging_strategy: steps
+          save_strategy: steps
+          save_steps: 200
+          save_total_limit: 6
+          eval_steps: 200
+          bf16: false
+          remove_unused_columns: true
+          dataloader_num_workers: 0
+          report_to:
+          - wandb
+          run_name: stage1_Gemma2_CCAT50
+      # mistralai/Mistral-7B-Instruct-v0.3 on CCAT50: 4 epochs, max length 768.
+      Mistral:
+        model:
+          model_name_or_path: mistralai/Mistral-7B-Instruct-v0.3
+          torch_dtype: bfloat16
+          attn_implementation: null
+          load_in_8bit: false
+          bnb_4bit_compute_dtype: bfloat16
+          adapter_name_or_path: outputs/cross_model_evaluators/s0/Mistral_CCAT50
+          adapter_is_trainable: true
+          merge_adapter: true
+        data:
+          preprocessing_num_workers: 4
+          max_seq_length: 768
+          shuffle: true
+        lora:
+          adapter_name: stage1
+          target_modules:
+          - q_proj
+          - k_proj
+          - v_proj
+        training:
+          output_dir: outputs/cross_model_evaluators/s1/Mistral_stage1_CCAT50
+          num_train_epochs: 4
+          per_device_train_batch_size: 4
+          per_device_eval_batch_size: 1
+          logging_strategy: steps
+          save_strategy: steps
+          save_steps: 200
+          save_total_limit: 6
+          eval_steps: 200
+          bf16: false
+          remove_unused_columns: true
+          dataloader_num_workers: 0
+          report_to:
+          - wandb
+          run_name: stage1_Mistral_CCAT50
+      # microsoft/Phi-4-mini-instruct on CCAT50: 4 epochs, max length 768.
+      Phi4mini:
+        model:
+          model_name_or_path: microsoft/Phi-4-mini-instruct
+          torch_dtype: float16
+          attn_implementation: null
+          load_in_8bit: false
+          bnb_4bit_compute_dtype: float16
+          adapter_name_or_path: outputs/cross_model_evaluators/s0/Phi4mini_CCAT50
+          adapter_is_trainable: true
+          merge_adapter: true
+        data:
+          preprocessing_num_workers: 4
+          max_seq_length: 768
+          shuffle: true
+        lora:
+          adapter_name: stage1
+          target_modules:
+          - qkv_proj
+        training:
+          output_dir: outputs/cross_model_evaluators/s1/Phi4mini_stage1_CCAT50
+          num_train_epochs: 4
+          per_device_train_batch_size: 4
+          per_device_eval_batch_size: 1
+          logging_strategy: steps
+          save_strategy: steps
+          save_steps: 200
+          save_total_limit: 6
+          eval_steps: 200
+          bf16: false
+          remove_unused_columns: true
+          dataloader_num_workers: 0
+          report_to:
+          - wandb
+          run_name: stage1_Phi4mini_CCAT50
+
+  # Blogs10: use these data paths, outputs, and model settings only for Blogs10.
+  # Available models: Llama3, Gemma2, Mistral, Phi4mini.
+  Blogs10:
+    data:
+      train_path: data/Blogs10/stage1_atomic_facts_train.jsonl
+      eval_path: data/Blogs10/stage1_atomic_facts_eval.jsonl
+    model_variants:
+      # meta-llama/Llama-3.1-8B-Instruct on Blogs10: 2 epochs, max length 1000.
+      Llama3:
+        model:
+          model_name_or_path: meta-llama/Llama-3.1-8B-Instruct
+          torch_dtype: bfloat16
+          bnb_4bit_compute_dtype: bfloat16
+          bnb_4bit_quant_type: nf4
+          bnb_4bit_use_double_quant: true
+        lora:
+          target_modules:
+          - q_proj
+          - k_proj
+          - v_proj
+        data:
+          max_seq_length: 1000
+          packing: false
+          preprocessing_num_workers: 1
+        training:
+          num_train_epochs: 2
+          per_device_train_batch_size: 12
+          per_device_eval_batch_size: 4
+          lr_scheduler_type: cosine
+          bf16: true
+          eval_strategy: epoch
+          save_strategy: epoch
+          save_total_limit: 2
+          report_to: none
+          output_dir: outputs/aa/Llama3_Blogs10/s1
+      # google/gemma-2-9b-it on Blogs10: 4 epochs, max length 768.
+      Gemma2:
+        model:
+          model_name_or_path: google/gemma-2-9b-it
+          torch_dtype: bfloat16
+          attn_implementation: flash_attention_2
+          load_in_8bit: false
+          bnb_4bit_compute_dtype: bfloat16
+          adapter_name_or_path: null
+          adapter_is_trainable: false
+          merge_adapter: false
+        data:
+          preprocessing_num_workers: 4
+          packing: true
+          max_seq_length: 768
+          shuffle: true
+        lora:
+          adapter_name: stage1
+          target_modules:
+          - q_proj
+          - k_proj
+          - v_proj
+        training:
+          output_dir: outputs/cross_model_evaluators/s1/Gemma2_stage1_Blogs10
+          num_train_epochs: 4
+          per_device_train_batch_size: 4
+          per_device_eval_batch_size: 1
+          logging_strategy: steps
+          save_strategy: steps
+          save_steps: 200
+          save_total_limit: 6
+          eval_steps: 200
+          bf16: false
+          remove_unused_columns: true
+          dataloader_num_workers: 0
+          report_to:
+          - wandb
+          run_name: stage1_Gemma2_Blogs10
+      # mistralai/Mistral-7B-Instruct-v0.3 on Blogs10: 4 epochs, max length 768.
+      Mistral:
+        model:
+          model_name_or_path: mistralai/Mistral-7B-Instruct-v0.3
+          torch_dtype: bfloat16
+          attn_implementation: flash_attention_2
+          load_in_8bit: false
+          bnb_4bit_compute_dtype: bfloat16
+          adapter_name_or_path: null
+          adapter_is_trainable: false
+          merge_adapter: false
+        data:
+          preprocessing_num_workers: 4
+          packing: true
+          max_seq_length: 768
+          shuffle: true
+        lora:
+          adapter_name: stage1
+          target_modules:
+          - q_proj
+          - k_proj
+          - v_proj
+        training:
+          output_dir: outputs/cross_model_evaluators/s1/Mistral_stage1_Blogs10
+          num_train_epochs: 4
+          per_device_train_batch_size: 4
+          per_device_eval_batch_size: 1
+          logging_strategy: steps
+          save_strategy: steps
+          save_steps: 200
+          save_total_limit: 6
+          eval_steps: 200
+          bf16: false
+          remove_unused_columns: true
+          dataloader_num_workers: 0
+          report_to:
+          - wandb
+          run_name: stage1_Mistral_Blogs10
+      # microsoft/Phi-4-mini-instruct on Blogs10: 4 epochs, max length 768.
+      Phi4mini:
+        model:
+          model_name_or_path: microsoft/Phi-4-mini-instruct
+          torch_dtype: float16
+          attn_implementation: flash_attention_2
+          load_in_8bit: false
+          bnb_4bit_compute_dtype: float16
+          adapter_name_or_path: null
+          adapter_is_trainable: false
+          merge_adapter: false
+        data:
+          preprocessing_num_workers: 4
+          packing: true
+          max_seq_length: 768
+          shuffle: true
+        lora:
+          adapter_name: stage1
+          target_modules:
+          - qkv_proj
+        training:
+          output_dir: outputs/cross_model_evaluators/s1/Phi4mini_stage1_Blogs10
+          num_train_epochs: 4
+          per_device_train_batch_size: 4
+          per_device_eval_batch_size: 1
+          logging_strategy: steps
+          save_strategy: steps
+          save_steps: 200
+          save_total_limit: 6
+          eval_steps: 200
+          bf16: false
+          remove_unused_columns: true
+          dataloader_num_workers: 0
+          report_to:
+          - wandb
+          run_name: stage1_Phi4mini_Blogs10
+
+  # Blogs50: use these data paths, outputs, and model settings only for Blogs50.
+  # Available models: Llama3, Gemma2, Mistral, Phi4mini.
+  Blogs50:
+    data:
+      train_path: data/Blogs50/stage1_blogs50_80_atomic_facts_train_concat.jsonl
+      eval_path: data/Blogs50/stage1_blogs50_80_atomic_facts_eval_concat.jsonl
+    training:
+      num_train_epochs: 2
+    model_variants:
+      # meta-llama/Llama-3.1-8B-Instruct on Blogs50: 2 epochs, max length 1000.
+      Llama3:
+        model:
+          model_name_or_path: meta-llama/Llama-3.1-8B-Instruct
+          torch_dtype: bfloat16
+          bnb_4bit_compute_dtype: bfloat16
+          bnb_4bit_quant_type: nf4
+          bnb_4bit_use_double_quant: true
+        lora:
+          target_modules:
+          - q_proj
+          - k_proj
+          - v_proj
+        data:
+          max_seq_length: 1000
+          packing: false
+          preprocessing_num_workers: 1
+        training:
+          per_device_train_batch_size: 12
+          per_device_eval_batch_size: 4
+          lr_scheduler_type: cosine
+          bf16: true
+          eval_strategy: epoch
+          save_strategy: epoch
+          save_total_limit: 2
+          report_to: none
+          output_dir: outputs/aa/Llama3_Blogs50/s1
+      # google/gemma-2-9b-it on Blogs50: 2 epochs, max length 768.
+      Gemma2:
+        model:
+          model_name_or_path: google/gemma-2-9b-it
+          torch_dtype: bfloat16
+          attn_implementation: flash_attention_2
+          load_in_8bit: false
+          bnb_4bit_compute_dtype: bfloat16
+          adapter_name_or_path: outputs/cross_model_evaluators/s0/Gemma2_Blogs50
+          adapter_is_trainable: true
+          merge_adapter: true
+        data:
+          preprocessing_num_workers: 4
+          packing: true
+          max_seq_length: 768
+          shuffle: true
+        lora:
+          adapter_name: stage1
+          target_modules:
+          - q_proj
+          - k_proj
+          - v_proj
+        training:
+          output_dir: outputs/cross_model_evaluators/s1/Gemma2_stage1_Blogs50
+          per_device_train_batch_size: 4
+          per_device_eval_batch_size: 1
+          logging_strategy: steps
+          save_strategy: steps
+          save_steps: 200
+          save_total_limit: 6
+          eval_steps: 200
+          bf16: false
+          remove_unused_columns: true
+          dataloader_num_workers: 0
+          report_to:
+          - wandb
+          run_name: stage1_Gemma2_Blogs50
+      # mistralai/Mistral-7B-Instruct-v0.3 on Blogs50: 2 epochs, max length 768.
+      Mistral:
+        model:
+          model_name_or_path: mistralai/Mistral-7B-Instruct-v0.3
+          torch_dtype: bfloat16
+          attn_implementation: flash_attention_2
+          load_in_8bit: false
+          bnb_4bit_compute_dtype: bfloat16
+          adapter_name_or_path: outputs/cross_model_evaluators/s0/Mistral_Blogs50
+          adapter_is_trainable: true
+          merge_adapter: true
+        data:
+          preprocessing_num_workers: 4
+          packing: true
+          max_seq_length: 768
+          shuffle: true
+        lora:
+          adapter_name: stage1
+          target_modules:
+          - q_proj
+          - k_proj
+          - v_proj
+        training:
+          output_dir: outputs/cross_model_evaluators/s1/Mistral_stage1_Blogs50
+          per_device_train_batch_size: 4
+          per_device_eval_batch_size: 1
+          logging_strategy: steps
+          save_strategy: steps
+          save_steps: 200
+          save_total_limit: 6
+          eval_steps: 200
+          bf16: false
+          remove_unused_columns: true
+          dataloader_num_workers: 0
+          report_to:
+          - wandb
+          run_name: stage1_Mistral_Blogs50
+      # microsoft/Phi-4-mini-instruct on Blogs50: 2 epochs, max length 768.
+      Phi4mini:
+        model:
+          model_name_or_path: microsoft/Phi-4-mini-instruct
+          torch_dtype: float16
+          attn_implementation: null
+          load_in_8bit: false
+          bnb_4bit_compute_dtype: float16
+          adapter_name_or_path: outputs/cross_model_evaluators/s0/Phi4mini_Blogs50
+          adapter_is_trainable: true
+          merge_adapter: true
+        data:
+          preprocessing_num_workers: 4
+          packing: false
+          max_seq_length: 768
+          shuffle: true
+        lora:
+          adapter_name: stage1
+          target_modules:
+          - qkv_proj
+        training:
+          output_dir: outputs/cross_model_evaluators/s1/Phi4mini_stage1_Blogs50
+          per_device_train_batch_size: 4
+          per_device_eval_batch_size: 1
+          logging_strategy: steps
+          save_strategy: steps
+          save_steps: 200
+          save_total_limit: 6
+          eval_steps: 200
+          bf16: false
+          remove_unused_columns: true
+          dataloader_num_workers: 0
+          report_to:
+          - wandb
+          run_name: stage1_Phi4mini_Blogs50
+
+  # Gutenberg30: use these data paths, outputs, and model settings only for Gutenberg30.
+  # Available models: Llama3, Mistral.
+  Gutenberg30:
+    model:
+      torch_dtype: bfloat16
+      bnb_4bit_compute_dtype: bfloat16
+    lora:
+      target_modules:
+      - q_proj
+      - k_proj
+      - v_proj
+    data:
+      train_path: data/Gutenberg30/stage1_lowacc_atomic_facts_concat.jsonl
+      eval_path: data/Gutenberg30/stage1_lowacc_atomic_facts_eval_concat.jsonl
+      packing: false
+    training:
+      num_train_epochs: 2
+    model_variants:
+      # meta-llama/Llama-3.1-8B-Instruct on Gutenberg30: 2 epochs, max length 1000.
+      Llama3:
+        model:
+          model_name_or_path: meta-llama/Llama-3.1-8B-Instruct
+          bnb_4bit_quant_type: nf4
+          bnb_4bit_use_double_quant: true
+        data:
+          max_seq_length: 1000
+          preprocessing_num_workers: 1
+        training:
+          per_device_train_batch_size: 12
+          per_device_eval_batch_size: 4
+          lr_scheduler_type: cosine
+          bf16: true
+          eval_strategy: epoch
+          save_strategy: epoch
+          save_total_limit: 2
+          report_to: none
+          output_dir: outputs/aa/Llama3_Gutenberg30/s1
+      # mistralai/Mistral-7B-Instruct-v0.3 on Gutenberg30: 2 epochs, max length 768.
+      Mistral:
+        model:
+          model_name_or_path: mistralai/Mistral-7B-Instruct-v0.3
+          attn_implementation: null
+          load_in_8bit: false
+          adapter_name_or_path: outputs/cross_model_evaluators/s0/Mistral_Gutenberg30
+          adapter_is_trainable: true
+          merge_adapter: true
+        data:
+          preprocessing_num_workers: 4
+          max_seq_length: 768
+          shuffle: true
+        lora:
+          adapter_name: stage1
+        training:
+          output_dir: outputs/cross_model_evaluators/s1/Mistral_stage1_Gutenberg30
+          per_device_train_batch_size: 4
+          per_device_eval_batch_size: 1
+          logging_strategy: steps
+          save_strategy: steps
+          save_steps: 200
+          save_total_limit: 6
+          eval_steps: 200
+          bf16: false
+          remove_unused_columns: true
+          dataloader_num_workers: 0
+          report_to:
+          - wandb
+          run_name: stage1_Mistral_Gutenberg30

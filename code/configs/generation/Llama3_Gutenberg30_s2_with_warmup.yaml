@@ -1,0 +1,77 @@
+# Optional 4-epoch deflated stage after the 4-epoch warm-up (paper Appendix F.2).
+model:
+  name: meta-llama/Llama-3.1-8B-Instruct
+  stage1_adapter_path: outputs/aa/Llama3_Gutenberg30/s1
+  init_stage2_from_base: false
+  torch_dtype: bfloat16
+  attn_implementation: null
+  trust_remote_code: false
+  device_map: auto
+  stage2_adapter_path: outputs/generation/Gutenberg30/s0
+quantization:
+  load_in_4bit: true
+  bnb_4bit_compute_dtype: bfloat16
+  bnb_4bit_quant_type: nf4
+  bnb_4bit_use_double_quant: true
+lora:
+  r: 8
+  lora_alpha: 16
+  lora_dropout: 0.1
+  target_modules:
+  - q_proj
+  - k_proj
+  - v_proj
+deflation:
+  basis_type: deltaW
+  basis_solver: svd
+  basis_tol: 1e-6
+  include_module:
+  - q_proj
+  - k_proj
+  - v_proj
+  sample_every: 10
+  log_topk: 5
+  log_csv: outputs/generation/Gutenberg30/s2_with_warmup/deflation_stats.csv
+  save_u_sem: outputs/generation/Gutenberg30/s2_with_warmup/deflation_bases.pt
+data:
+  train_path: data/Gutenberg30/train.jsonl
+  eval_path: data/Gutenberg30/eval.jsonl
+  test_path: data/Gutenberg30/test.jsonl
+  summary_field: content_pack
+  text_field: text
+  author_field: author
+  max_seq_length: 1024
+  seed: 1234
+prompt:
+  system_prompt: |
+    You are a writing assistant that creates original literary paragraphs. Write a new paragraph in the style of the specified author. Do not copy the source text.
+  template: |
+    <|start_header_id|>system<|end_header_id|>
+    {system_prompt}
+    <|eot_id|><|start_header_id|>user<|end_header_id|>
+    Author: {author}
+    Task: Write a new literary paragraph.
+    <|eot_id|><|start_header_id|>assistant<|end_header_id|>
+  answer_prefix: ''
+training:
+  output_dir: outputs/generation/Gutenberg30/s2_with_warmup
+  num_train_epochs: 4
+  per_device_train_batch_size: 12
+  per_device_eval_batch_size: 4
+  gradient_accumulation_steps: 4
+  learning_rate: 0.0002
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.05
+  weight_decay: 0.01
+  logging_steps: 10
+  eval_strategy: steps
+  save_strategy: steps
+  eval_steps: 200
+  save_steps: 200
+  save_total_limit: 5
+  bf16: true
+  run_name: EDITORS_Gutenberg30_generation_with_warmup
+  report_to: none
+  seed: 1234
+loss_logging:
+  csv_path: outputs/generation/Gutenberg30/s2_with_warmup/loss_history.csv

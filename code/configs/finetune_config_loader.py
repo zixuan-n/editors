@@ -9,19 +9,64 @@ scripts can stay small and only differ by which YAML they point to.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import yaml
 
 
-def load_config(path: str) -> Dict[str, Any]:
-    """Load a YAML mapping from disk."""
+def _merge_config(base: Dict[str, Any], overrides: Dict[str, Any]) -> Dict[str, Any]:
+    result = deepcopy(base)
+    for key, value in overrides.items():
+        if isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = _merge_config(result[key], value)
+        else:
+            result[key] = deepcopy(value)
+    return result
+
+
+def _read_config(path: str) -> Dict[str, Any]:
     with open(path, "r", encoding="utf-8") as handle:
         cfg = yaml.safe_load(handle)
     if not isinstance(cfg, dict):
         raise ValueError("Configuration file must contain a mapping at the top level.")
     return cfg
+
+
+def _select_variant(cfg: Dict[str, Any], kind: str, selected: Optional[str], flag: str) -> Dict[str, Any]:
+    variants_key = f"{kind}_variants"
+    variants = cfg.pop(variants_key, None)
+    if variants is None:
+        if selected is not None:
+            raise ValueError(f"{flag} requires a config with a {variants_key} section.")
+        return cfg
+    if not isinstance(variants, dict) or not variants:
+        raise ValueError(f"{variants_key} must be a nonempty mapping.")
+    default = cfg.pop(f"default_{kind}", None)
+    selected = selected if selected is not None else default
+    if selected not in variants:
+        raise ValueError(f"No {kind} variant {selected!r}; available variants: {', '.join(variants)}")
+    if not isinstance(variants[selected], dict):
+        raise ValueError(f"{kind.capitalize()} variant {selected!r} must contain a mapping.")
+    return _merge_config(cfg, variants[selected])
+
+
+def load_config(path: str, model_variant: Optional[str] = None,
+                dataset_variant: Optional[str] = None) -> Dict[str, Any]:
+    """Resolve dataset overrides first, then the selected model's overrides."""
+    cfg = _select_variant(_read_config(path), "dataset", dataset_variant, "--dataset")
+    return _select_variant(cfg, "model", model_variant, "--model_variant")
+
+
+def iter_config_variants(path: str) -> Iterator[Tuple[Optional[str], Optional[str]]]:
+    """Enumerate only the dataset/model combinations explicitly present in a config."""
+    raw = _read_config(path)
+    datasets = raw.get("dataset_variants", {None: {}})
+    for dataset in datasets:
+        cfg = _select_variant(deepcopy(raw), "dataset", dataset, "--dataset")
+        for model in cfg.get("model_variants", {None: {}}):
+            yield dataset, model
 
 
 # --------------- helpers -----------------
@@ -38,8 +83,9 @@ def _ensure_list(value: Optional[Any]) -> Optional[List[str]]:
 
 
 # --------------- per-script loaders -----------------
-def load_lowacc_config(path: str) -> SimpleNamespace:
-    cfg = load_config(path)
+def load_lowacc_config(path: str, model_variant: Optional[str] = None,
+                       dataset_variant: Optional[str] = None) -> SimpleNamespace:
+    cfg = load_config(path, model_variant, dataset_variant)
 
     model_cfg = cfg.get("model", {})
     data_cfg = cfg.get("data", {})
@@ -56,7 +102,7 @@ def load_lowacc_config(path: str) -> SimpleNamespace:
 
     return SimpleNamespace(
         model_name=model_cfg.get("name", "meta-llama/Llama-3.1-8B-Instruct"),
-        max_seq_length=model_cfg.get("max_seq_length", 2048),
+        max_seq_length=data_cfg.get("max_seq_length", model_cfg.get("max_seq_length", 2048)),
         trust_remote_code=model_cfg.get("trust_remote_code", False),
         torch_dtype=model_cfg.get("torch_dtype"),
         device_map=model_cfg.get("device_map"),
@@ -147,8 +193,9 @@ def load_atomic_config(path: str) -> SimpleNamespace:
     )
 
 
-def load_stage2_config(path: str) -> SimpleNamespace:
-    cfg = load_config(path)
+def load_stage2_config(path: str, model_variant: Optional[str] = None,
+                      dataset_variant: Optional[str] = None) -> SimpleNamespace:
+    cfg = load_config(path, model_variant, dataset_variant)
     model_cfg = cfg.get("model", {})
     data_cfg = cfg.get("data", {})
     train_cfg = cfg.get("training", {})
@@ -189,8 +236,13 @@ def load_stage2_config(path: str) -> SimpleNamespace:
         dev_jsonl=data_cfg.get("eval_path") or data_cfg.get("dev_jsonl") or "",
         out_dir=train_cfg.get("output_dir", "outputs/stage2_ce_deflated"),
         max_len=data_cfg.get("max_seq_length", 768),
-        seed=train_cfg.get("seed", 42),
+        seed=train_cfg.get("seed", data_cfg.get("seed", 42)),
         use_4bit=use_4bit,
+        quant_args=quant_cfg,
+        torch_dtype=model_cfg.get("torch_dtype", "bfloat16"),
+        trust_remote_code=model_cfg.get("trust_remote_code", False),
+        device_map=model_cfg.get("device_map", {"": 0}),
+        training_args=dict(train_cfg),
         batch=train_cfg.get("batch_size") or train_cfg.get("per_device_train_batch_size") or 4,
         eval_batch=train_cfg.get("per_device_eval_batch_size") or train_cfg.get("batch_size") or 4,
         grad_accum=train_cfg.get("grad_accum") or train_cfg.get("gradient_accumulation_steps") or 4,
@@ -210,6 +262,8 @@ def load_stage2_config(path: str) -> SimpleNamespace:
         include_module=_ensure_list(defl_cfg.get("include_module")),
         basis_tol=basis_tol,
         basis_type=str(defl_cfg.get("basis_type", "lora_A")),
+        basis_solver=str(defl_cfg.get("basis_solver", "qr")),
+        basis_rank_k=defl_cfg.get("basis_rank_k", defl_cfg.get("max_rank")),
         save_u_sem=defl_cfg.get("save_u_sem"),
         deflation_sample_every=int(defl_cfg.get("sample_every", 1) or 1),
         deflation_log_topk=int(defl_cfg.get("log_topk", 0) or 0),
@@ -313,6 +367,11 @@ def load_stage2_gen_config(path: str) -> SimpleNamespace:
         max_len=data_cfg.get("max_seq_length", 1024),
         seed=train_cfg.get("seed", 42),
         use_4bit=use_4bit,
+        quant_args=quant_cfg,
+        torch_dtype=model_cfg.get("torch_dtype", "bfloat16"),
+        trust_remote_code=model_cfg.get("trust_remote_code", False),
+        device_map=model_cfg.get("device_map", {"": 0}),
+        training_args=dict(train_cfg),
         batch=train_cfg.get("batch_size") or train_cfg.get("per_device_train_batch_size") or 4,
         eval_batch=train_cfg.get("per_device_eval_batch_size") or train_cfg.get("batch_size") or 4,
         grad_accum=train_cfg.get("grad_accum") or train_cfg.get("gradient_accumulation_steps") or 4,
@@ -332,6 +391,8 @@ def load_stage2_gen_config(path: str) -> SimpleNamespace:
         include_module=_ensure_list(defl_cfg.get("include_module")),
         basis_tol=basis_tol,
         basis_type=str(defl_cfg.get("basis_type", "lora_A")),
+        basis_solver=str(defl_cfg.get("basis_solver", "qr")),
+        basis_rank_k=(int(defl_cfg["basis_rank_k"]) if defl_cfg.get("basis_rank_k") is not None else None),
         save_u_sem=defl_cfg.get("save_u_sem"),
         deflation_sample_every=int(defl_cfg.get("sample_every", 1) or 1),
         deflation_log_topk=int(defl_cfg.get("log_topk", 0) or 0),

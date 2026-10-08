@@ -259,7 +259,7 @@ def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description="Generate atomic facts for Reuters CCAT JSONL.")
     ap.add_argument(
         "--input",
-        default="splits/reuter_c50_10authors_100w_keep50/train.jsonl",
+        default="data/reuter_c50_10authors_100w_keep50/train.jsonl",
         help="Input JSONL path.",
     )
     ap.add_argument(

@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.DS_Store
+/logs/
+/outputs/
+/outputs_generator/
+/output/
+/results/
+/stage_evaluation/
+/wandb/
+/eval_generator/
+/eval_out/

@@ -15,11 +15,15 @@ import importlib.util
 import logging
 import os
 from typing import Any, Dict, List, Optional
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "configs"))
+from finetune_config_loader import load_config
 
 import torch
-import yaml
 from datasets import load_dataset
-from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from peft import LoraConfig, PeftModel, get_peft_model, prepare_model_for_kbit_training
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -27,7 +31,7 @@ from transformers import (
     TrainingArguments,
     set_seed,
 )
-from trl import SFTTrainer
+from trl import SFTConfig, SFTTrainer
 
 LOGGER = logging.getLogger("stage1_cpt")
 
@@ -35,6 +39,16 @@ LOGGER = logging.getLogger("stage1_cpt")
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+def training_kwargs(values):
+    result = dict(values)
+    if "evaluation_strategy" in result:
+        result.setdefault("eval_strategy", result.pop("evaluation_strategy"))
+    result.setdefault("report_to", "none")
+    if "AA_REPORT_TO" in os.environ:
+        result["report_to"] = os.environ["AA_REPORT_TO"]
+    return result
+
+
 def _resolve_dtype(dtype_name: Optional[str]) -> Any:
     if dtype_name is None or dtype_name == "auto":
         return "auto"
@@ -70,19 +84,19 @@ def _build_bitsandbytes_config(model_cfg: Dict[str, Any]) -> Optional[BitsAndByt
     )
 
 
-def _load_yaml_config(path: str) -> Dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as handle:
-        data = yaml.safe_load(handle)
-    if not isinstance(data, dict):
-        raise ValueError(f"Config at {path} must be a YAML mapping.")
-    return data
+def _load_yaml_config(path: str, model_variant: Optional[str] = None,
+                      dataset_variant: Optional[str] = None) -> Dict[str, Any]:
+    return load_config(path, model_variant, dataset_variant)
 
 
 def _filter_training_kwargs(cfg: Dict[str, Any]) -> Dict[str, Any]:
-    training_kwargs = dict(cfg)
-    gradient_checkpointing_kwargs = training_kwargs.pop("gradient_checkpointing_kwargs", None)
-    allowed = set(TrainingArguments.__dataclass_fields__.keys())
-    filtered = {k: v for k, v in training_kwargs.items() if k in allowed and v is not None}
+    training_options = training_kwargs(cfg)
+    gradient_checkpointing_kwargs = training_options.pop("gradient_checkpointing_kwargs", None)
+    allowed = set(SFTConfig.__dataclass_fields__.keys())
+    unknown = set(training_options) - allowed
+    if unknown:
+        raise ValueError(f"Unsupported training settings: {sorted(unknown)}")
+    filtered = {k: v for k, v in training_options.items() if k in allowed and v is not None}
     if gradient_checkpointing_kwargs is not None:
         filtered["gradient_checkpointing_kwargs"] = gradient_checkpointing_kwargs
     return filtered
@@ -104,7 +118,7 @@ def _load_jsonl_dataset(path: str, text_column: str, num_workers: int):
 
 
 def _build_lora_config(cfg: Dict[str, Any]) -> Optional[LoraConfig]:
-    if not cfg["enabled"]:
+    if not cfg.get("enabled", False):
         return None
     return LoraConfig(
         r=cfg["r"],
@@ -132,10 +146,12 @@ def _resolve_attn_impl(attn_impl: Optional[str]) -> Optional[str]:
 # ---------------------------------------------------------------------------
 def main() -> None:
     parser = argparse.ArgumentParser(description="Stage-1 atomic facts continued pretraining.")
-    parser.add_argument("--config", required=True, default="configs/stage1_atomic_cpt.yaml", help="Path to YAML configuration file.")
+    parser.add_argument("--config", default="code/configs/aa/s1.yaml", help="Path to YAML configuration file.")
+    parser.add_argument("--model_variant", default=None, help="Model settings to select from the YAML (default: default_model).")
+    parser.add_argument("--dataset", default=None, help="Dataset settings to select from the YAML (default: default_dataset).")
     args = parser.parse_args()
 
-    raw_cfg = _load_yaml_config(args.config)
+    raw_cfg = _load_yaml_config(args.config, args.model_variant, args.dataset)
     model_cfg = dict(raw_cfg.get("model", {}))
     data_cfg = dict(raw_cfg.get("data", {}))
     lora_cfg = dict(raw_cfg.get("lora", {}))
@@ -162,7 +178,7 @@ def main() -> None:
     LOGGER.info("Loading tokenizer for %s", model_name)
     tokenizer = AutoTokenizer.from_pretrained(
         model_name,
-        use_fast=False,
+        use_fast=True,
         trust_remote_code=trust_remote_code,
     )
     if tokenizer.pad_token is None:
@@ -226,20 +242,12 @@ def main() -> None:
             use_gradient_checkpointing=training_cfg.get("gradient_checkpointing", False),
         )
 
-    peft_config = _build_lora_config(lora_cfg)
-    if peft_config:
-        LOGGER.info(
-            "Applying LoRA with r=%d alpha=%d dropout=%.3f",
-            lora_cfg["r"],
-            lora_cfg["lora_alpha"],
-            lora_cfg["lora_dropout"],
-        )
-        model = get_peft_model(model, peft_config)
+    model = initialize_adapter(model, model_cfg, lora_cfg)
+    if hasattr(model, "print_trainable_parameters"):
         model.print_trainable_parameters()
 
-    # Build TrainingArguments
-    training_kwargs = _filter_training_kwargs(training_cfg)
-    training_args = TrainingArguments(**training_kwargs)
+    # Build SFTConfig: dataset options belong here, not on SFTTrainer.
+    training_args = build_sft_config(training_cfg, data_cfg)
 
     if training_cfg.get("gradient_checkpointing", False):
         model.config.use_cache = False
@@ -251,10 +259,7 @@ def main() -> None:
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         processing_class=tokenizer,
-        dataset_text_field=text_column,
-        max_seq_length=data_cfg.get("max_seq_length", 1536),
-        packing=data_cfg.get("packing", False),
-        peft_config=None,  # already applied if enabled
+        peft_config=None,
     )
 
     LOGGER.info("Starting training …")
@@ -262,12 +267,47 @@ def main() -> None:
     trainer.log_metrics("train", train_result.metrics)
     trainer.save_metrics("train", train_result.metrics)
     trainer.save_state()
-
-    LOGGER.info("Saving model and tokenizer to %s", training_args.output_dir)
     trainer.save_model(training_args.output_dir)
     tokenizer.save_pretrained(training_args.output_dir)
-
     LOGGER.info("Done.")
+
+
+def initialize_adapter(model, model_cfg, lora_cfg):
+    adapter_path = model_cfg.get("adapter_name_or_path")
+    merge = bool(model_cfg.get("merge_adapter", False))
+    trainable = bool(model_cfg.get("adapter_is_trainable", False))
+    peft_config = _build_lora_config(lora_cfg)
+    if adapter_path:
+        if peft_config is not None and not merge:
+            raise ValueError("Enable model.merge_adapter to initialize a fresh diagnostic LoRA from a warm-up adapter")
+        if peft_config is None and not trainable:
+            raise ValueError("The supplied adapter must be trainable when lora.enabled is false")
+        model = PeftModel.from_pretrained(model, adapter_path, is_trainable=trainable and not merge)
+        if merge:
+            if peft_config is None:
+                raise ValueError("Merging requires lora.enabled=true to create a new diagnostic adapter")
+            model = model.merge_and_unload()
+    if peft_config:
+        LOGGER.info(
+            "Applying LoRA with r=%d alpha=%d dropout=%.3f",
+            lora_cfg["r"],
+            lora_cfg["lora_alpha"],
+            lora_cfg["lora_dropout"],
+        )
+        model = get_peft_model(model, peft_config)
+        model.print_trainable_parameters()
+
+    if not any(p.requires_grad for p in model.parameters()):
+        raise ValueError("Stage 1 has no trainable parameters")
+    return model
+
+
+def build_sft_config(training_cfg, data_cfg):
+    options = _filter_training_kwargs(training_cfg)
+    options.update(dataset_text_field=data_cfg.get("text_column", "text"),
+                   max_length=data_cfg.get("max_seq_length", 1536),
+                   packing=data_cfg.get("packing", False))
+    return SFTConfig(**options)
 
 
 if __name__ == "__main__":

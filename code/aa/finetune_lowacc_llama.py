@@ -3,7 +3,7 @@
 """
 Fine-tune Llama-3.1-8B-Instruct on the low-accuracy Gutenberg authors dataset.
 
-The script expects a YAML configuration file (see configs/lowacc_llama3_finetune.yaml)
+The script expects a YAML configuration file (see code/configs/aa/s0.yaml)
 that specifies model, LoRA, quantisation, and training hyperparameters.
 
 Features:
@@ -42,6 +42,10 @@ from transformers import (
     TrainingArguments,
     AutoConfig,
 )
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "configs"))
 from finetune_config_loader import load_lowacc_config
 
 try:
@@ -51,6 +55,17 @@ except ImportError:  # pragma: no cover
 
 
 DEFAULT_SYSTEM_PROMPT = None
+
+
+def training_kwargs(values):
+    result = dict(values)
+    if "evaluation_strategy" in result:
+        result.setdefault("eval_strategy", result.pop("evaluation_strategy"))
+    result.setdefault("report_to", "none")
+    if "AA_REPORT_TO" in os.environ:
+        result["report_to"] = os.environ["AA_REPORT_TO"]
+    return result
+
 
 def _parse_authors(authors: Optional[List[str]]) -> Optional[List[str]]:
     if not authors:
@@ -310,17 +325,12 @@ class CausalLMDataCollator:
             return_tensors="pt",
             pad_to_multiple_of=self.pad_to_multiple_of,
         )
-        batch_labels = self.tokenizer.pad(
-            {"input_ids": labels},
-            padding="longest",
-            return_tensors="pt",
-            pad_to_multiple_of=self.pad_to_multiple_of,
-        )["input_ids"]
-        pad_token_id = self.tokenizer.pad_token_id
-        if pad_token_id is None:
-            raise ValueError("Tokenizer pad_token_id must be set for padding.")
-        batch_labels = batch_labels.masked_fill(batch_labels == pad_token_id, -100)
-        batch_inputs["labels"] = batch_labels
+        width = batch_inputs["input_ids"].shape[1]
+        padded_labels = []
+        for label in labels:
+            padding = [-100] * (width - len(label))
+            padded_labels.append(padding + label if self.tokenizer.padding_side == "left" else label + padding)
+        batch_inputs["labels"] = torch.tensor(padded_labels, dtype=torch.long)
         return batch_inputs
 
 
@@ -375,7 +385,9 @@ def load_model_and_tokenizer(cfg: SimpleNamespace):
         return dtype_name
 
     quant_cfg = None
-    if cfg.quant_args:
+    if cfg.quant_args and (
+        cfg.quant_args.get("load_in_4bit", False) or cfg.quant_args.get("load_in_8bit", False)
+    ):
         quant_kwargs = dict(cfg.quant_args)
         dtype_key = "bnb_4bit_compute_dtype"
         if dtype_key in quant_kwargs and isinstance(quant_kwargs[dtype_key], str):
@@ -431,6 +443,8 @@ def load_model_and_tokenizer(cfg: SimpleNamespace):
             **cfg.lora_args,
         )
         model = get_peft_model(base_model, lora_config)
+    if cfg.training_args.get("gradient_checkpointing", False):
+        model.enable_input_require_grads()
     model.print_trainable_parameters()
     return model, tokenizer
 
@@ -438,21 +452,22 @@ def load_model_and_tokenizer(cfg: SimpleNamespace):
 def build_training_arguments(cfg: SimpleNamespace) -> TrainingArguments:
     return TrainingArguments(
         output_dir=cfg.output_dir,
-        report_to=["tensorboard"],
-        **cfg.training_args,
+        **training_kwargs(cfg.training_args),
     )
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Fine-tune Llama-3.1-8B on low-accuracy Gutenberg authors."
+        description="Fine-tune an author-attribution LoRA classifier."
     )
     parser.add_argument(
         "--config",
         type=str,
-        default="configs/lowacc_llama3_finetune.yaml",
+        default="code/configs/aa/s0.yaml",
         help="Path to the YAML configuration file.",
     )
+    parser.add_argument("--model_variant", default=None, help="Model settings to select from the YAML (default: default_model).")
+    parser.add_argument("--dataset", default=None, help="Dataset settings to select from the YAML (default: default_dataset).")
     parser.add_argument(
         "--seed",
         type=int,
@@ -476,7 +491,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    cfg = load_lowacc_config(args.config)
+    cfg = load_lowacc_config(args.config, args.model_variant, args.dataset)
     if args.seed is not None:
         cfg.data_seed = args.seed
     cfg.lora_checkpoint = args.lora_checkpoint or getattr(cfg, "lora_checkpoint", None)
@@ -498,12 +513,14 @@ def main() -> None:
             eval_by_author.setdefault(a, []).append(row)
     eval_rows: List[Dict[str, object]] = []
     rng_eval = random.Random(cfg.data_seed + 1)
-    per_author_eval = 10
+    per_author_eval = cfg.eval_subset_per_author
+    if per_author_eval is not None and per_author_eval < 1:
+        raise ValueError("data.eval_subset_per_author must be positive or null")
     for a in authors:
         bucket = eval_by_author.get(a, [])
         if not bucket:
             continue
-        if len(bucket) <= per_author_eval:
+        if per_author_eval is None or len(bucket) <= per_author_eval:
             chosen = bucket
         else:
             chosen = rng_eval.sample(bucket, per_author_eval)
@@ -519,8 +536,8 @@ def main() -> None:
     if answer_prefix is None:
         answer_prefix = " "
 
-    train_dataset = dataset_from_jsonl(
-        cfg.train_path,
+    train_dataset = dataset_from_rows(
+        train_rows,
         tokenizer=tokenizer,
         authors=authors,
         max_seq_length=cfg.max_seq_length,
@@ -556,7 +573,7 @@ def main() -> None:
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         data_collator=data_collator,
         callbacks=callbacks,
     )
@@ -564,6 +581,7 @@ def main() -> None:
     trainer.train()
     trainer.save_model(cfg.output_dir)
     trainer.save_state()
+    tokenizer.save_pretrained(cfg.output_dir)
 
     if cfg.loss_plot_path and cfg.loss_log_path:
         if plt is None:

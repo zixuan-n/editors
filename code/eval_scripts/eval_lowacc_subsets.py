@@ -28,18 +28,18 @@ from transformers import (
     logging as hf_logging,
 )
 
-# DEFAULT_DATASET = "splits/reuter_c50_10authors/test.jsonl"
-# DEFAULT_DATASET = "splits/reuter_c50_10authors_100w_keep50/test.jsonl"
-#DEFAULT_DATASET = "splits/lowacc_authors/test.jsonl"
-# DEFAULT_DATASET = "splits/lowacc_authors_10authors_100w_keep50/test.jsonl"
-# DEFAULT_DATASET = "splits/blogtext_10authors_300w_100p_diverse/test.jsonl"
-# DEFAULT_DATASET = "splits/imdb62_top10/test.jsonl"
-DEFAULT_DATASET = "splits/CCAT50/test.jsonl"
-#DEFAULT_DATASET = "splits/blogs50_80/test.jsonl"
-# DEFAULT_DATASET = "splits/blogs10/test.jsonl"
+# DEFAULT_DATASET = "data/reuter_c50_10authors/test.jsonl"
+# DEFAULT_DATASET = "data/reuter_c50_10authors_100w_keep50/test.jsonl"
+#DEFAULT_DATASET = "data/Gutenberg30/test.jsonl"
+# DEFAULT_DATASET = "data/lowacc_authors_10authors_100w_keep50/test.jsonl"
+# DEFAULT_DATASET = "data/blogtext_10authors_300w_100p_diverse/test.jsonl"
+# DEFAULT_DATASET = "data/imdb62_top10/test.jsonl"
+DEFAULT_DATASET = "data/CCAT50/test.jsonl"
+#DEFAULT_DATASET = "data/blogs50_80/test.jsonl"
+# DEFAULT_DATASET = "data/blogs10/test.jsonl"
 # DEFAULT_DATASET = "eval_out/style_gen_eval_lowacc/generated_gpt4_stylgen_synth_full_style_gen.jsonl"
-# DEFAULT_DATASET = "splits/blogs50/test.jsonl"
-# DEFAULT_DATASET = "splits/lowacc_mix/test.jsonl"
+# DEFAULT_DATASET = "data/blogs50/test.jsonl"
+# DEFAULT_DATASET = "data/lowacc_mix/test.jsonl"
 # --- Original ---
 # DEFAULT_MODEL_ID = "Qwen/Qwen3-4B-Instruct-2507"
 # --- Mistral (optional) ---
