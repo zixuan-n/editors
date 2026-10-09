@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Generate styleless atomic facts for the Reuters CCAT dataset (JSONL).
+Generate style-neutral statements for the Reuters CCAT dataset (JSONL).
 
 Input rows must contain: {"author": ..., "title": ..., "text": ...}
 Optional: "chunk_id" (or "chunk_index", "orig_index").
-Output JSONL rows: {"text": <fact>, "source": {"author": ..., "title": ..., "chunk_id": ...}}
+Output JSONL rows: {"text": <statement>, "source": {"author": ..., "title": ..., "chunk_id": ...}}
 """
 
 from __future__ import annotations
@@ -185,11 +185,11 @@ def call_gpt_atomic_facts(
     print_raw: bool,
 ) -> List[str]:
     system = (
-        "You turn passages into neutral, styleless atomic facts. "
-        "Each fact should stand alone, use plain prose, and stay faithful to the passage."
+        "You turn passages into style-neutral statements. "
+        "Each statement should stand alone, use plain prose, and stay faithful to the passage."
     )
     user = (
-        f"Rewrite this passage as {min_facts} to {max_facts} standalone atomic factual statements.\n"
+        f"Rewrite this passage as {min_facts} to {max_facts} standalone style-neutral statements.\n"
         f"- Capture what the passage claims (opinions become factual claims about the author/source).\n"
         f"- Keep names and entities unchanged; avoid figurative language.\n"
         f"- Output ONLY a JSON array of strings, nothing else.\n\n"
@@ -256,7 +256,7 @@ def call_gpt_atomic_facts(
 
 
 def parse_args() -> argparse.Namespace:
-    ap = argparse.ArgumentParser(description="Generate atomic facts for Reuters CCAT JSONL.")
+    ap = argparse.ArgumentParser(description="Generate style-neutral statements for Reuters CCAT JSONL.")
     ap.add_argument(
         "--input",
         default="data/reuter_c50_10authors_100w_keep50/train.jsonl",
@@ -373,7 +373,7 @@ def main() -> None:
     mode = "a" if args.append else "w"
 
     with open(args.out, mode, encoding="utf-8") as fout:
-        pbar = tqdm(rows, desc="Generating CCAT atomic facts", unit="row")
+        pbar = tqdm(rows, desc="Generating CCAT style-neutral statements", unit="row")
         for rec in pbar:
             key = record_key(rec)
             if key in processed:

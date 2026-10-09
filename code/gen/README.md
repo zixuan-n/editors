@@ -13,9 +13,10 @@ GPU=0 bash scripts/train_generation.sh s1
 GPU=0 bash scripts/train_generation.sh s2
 ```
 
-- For the optional 4 + 4 epoch variant, reuse the same diagnostic adapter:
+- For the optional 4 + 4 epoch variant, train the diagnostic adapter first, then the warm-up and deflated generator. Skip `s1` if that diagnostic adapter is already trained:
 
 ```bash
+GPU=0 bash scripts/train_generation.sh s1
 GPU=0 bash scripts/train_generation.sh s0
 GPU=0 bash scripts/train_generation.sh s2_with_warmup
 ```
@@ -39,14 +40,7 @@ GPU=0 bash scripts/generate_content.sh 1001
 GPU=0 bash scripts/generate_prefix.sh 1234
 ```
 
-- Content outputs: `outputs/generation/content/seed_SEED/generated_EDITORS_A2G.jsonl`.
-- Prefix outputs: `outputs/generation/prefix/seed_SEED/generated_EDITORS_A2G.jsonl`.
-- Pass a custom output directory as the second argument.
-- Default adapter: `outputs/generation/Gutenberg30/s2/adapter_deflated_stage2`.
-- For the warm-up variant, set `GEN_ADAPTER=outputs/generation/Gutenberg30/s2_with_warmup/adapter_deflated_stage2`.
-- Keep `deflation_basis.safetensors` beside the generator adapter for inference.
-
-## Scoring
+## Evaluation
 
 - Set `OPENAI_API_KEY` for content and fluency evaluation.
 - Python entry point: [evaluate_generation.py](../eval_scripts/evaluate_generation.py).
@@ -56,13 +50,13 @@ GPU=0 bash scripts/generate_prefix.sh 1234
 GPU=0 bash scripts/run_aa.sh Llama3 Gutenberg30
 ```
 
-- Score memorization and style for content seed 1001:
+- Evaluate memorization and style for content seed 1001:
 
 ```bash
 GPU=0 bash scripts/eval_generation.sh
 ```
 
-- Score five-word continuation:
+- Evaluate five-word continuation:
 
 ```bash
 GPU=0 bash scripts/eval_generation.sh \
@@ -85,5 +79,3 @@ GPU=0 bash scripts/eval_generation.sh INPUT.jsonl RESULTS_DIR all
 - `fluency`: mean GPT-4o mini score from 0 to 100.
 - Select another LoRA classifier with `EVALUATOR='NAME=ADAPTER|BASE_MODEL'`.
 - For multiple classifiers, repeat `--evaluator` in the Python command.
-- Resume content/fluency scoring by adding `--append` after the metric argument.
-- Results: per-passage scores and `RESULTS_DIR/summary.json`.

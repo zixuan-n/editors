@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Evaluate the fine-tuned low-accuracy author model across multiple sampled subsets.
+Evaluate authorship attribution on a full test split or sampled subsets.
 
 Each subset contains an equal number of passages per author (with optional title
 diversity) sampled from the evaluation JSONL. For every subset, the script runs
-one or more adapters (including the base model by default), aggregates
-accuracies, and records detailed statistics similar to eval_strict_subsets.py.
+one or more adapters, aggregates accuracies, and records per-author statistics.
+The default adapter is the bundled EDITORS CCAT50 checkpoint.
 """
 
 from __future__ import annotations
@@ -16,6 +16,8 @@ import csv
 import json
 import os
 import random
+import sys
+from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Set
 
 import torch
@@ -28,236 +30,17 @@ from transformers import (
     logging as hf_logging,
 )
 
-# DEFAULT_DATASET = "data/reuter_c50_10authors/test.jsonl"
-# DEFAULT_DATASET = "data/reuter_c50_10authors_100w_keep50/test.jsonl"
-#DEFAULT_DATASET = "data/Gutenberg30/test.jsonl"
-# DEFAULT_DATASET = "data/lowacc_authors_10authors_100w_keep50/test.jsonl"
-# DEFAULT_DATASET = "data/blogtext_10authors_300w_100p_diverse/test.jsonl"
-# DEFAULT_DATASET = "data/imdb62_top10/test.jsonl"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "aa"))
+from inference_deflation import register_deflation_hooks
+from safetensors.torch import load_file
+
 DEFAULT_DATASET = "data/CCAT50/test.jsonl"
-#DEFAULT_DATASET = "data/blogs50_80/test.jsonl"
-# DEFAULT_DATASET = "data/blogs10/test.jsonl"
-# DEFAULT_DATASET = "eval_out/style_gen_eval_lowacc/generated_gpt4_stylgen_synth_full_style_gen.jsonl"
-# DEFAULT_DATASET = "data/blogs50/test.jsonl"
-# DEFAULT_DATASET = "data/lowacc_mix/test.jsonl"
-# --- Original ---
-# DEFAULT_MODEL_ID = "Qwen/Qwen3-4B-Instruct-2507"
-# --- Mistral (optional) ---
-# DEFAULT_MODEL_ID = "mistralai/Mistral-7B-Instruct-v0.3"
-# --- Gemma-2 (optional) ---
-# DEFAULT_MODEL_ID = "google/gemma-2-9b-it"
-# --- New (Phi-4 mini) ---
-# DEFAULT_MODEL_ID = "microsoft/Phi-4-mini-instruct"
-# --- Qwen2.5 7B (optional) ---
-# DEFAULT_MODEL_ID = "Qwen/Qwen2.5-7B-Instruct"
 DEFAULT_MODEL_ID = "meta-llama/Llama-3.1-8B-Instruct"
 DEFAULT_ADAPTERS: Sequence[tuple[str, Optional[str], Optional[str]]] = (
-    # ("base", None, None),
-    # --- Mix test ---
-    # ("lowacc_mix_900", "outputs/lowacc_mix_900", None),
-    # ("lowacc_fake", "outputs/lowacc_fake", None),
-    # ("deflated_lowacc_fake", "outputs/deflated_lowacc_fake/adapter_deflated_stage2", None),
-    # ("deflated_lowacc_fake_from_base", "outputs/deflated_lowacc_fake_from_base/adapter_deflated_stage2", None),
-    # ("lowacc_real_3600", "outputs/lowacc_real_3600", None),
-    # ("lowacc_fake_3600", "outputs/lowacc_fake_3600", None),
-    # ("lowacc_real_unbalanced", "outputs/lowacc_real_unbalanced", None),
-    # ("lowacc_compensated_random", "outputs/lowacc_real_compensated_random", None),
-    # ("lowacc_compensated_verified", "outputs/lowacc_real_compensated_verified", None),
-    # ("lowacc_fake_6600", "outputs/lowacc_fake_6600", None),
-    # ("lowacc_fake_12600", "outputs/lowacc_fake_12600", None),
-    # ("deflated_lowacc_from_base", "output/deflated_lowacc_from_base/adapter_deflated_stage2", None),
-    #("posthoc_deflated", "outputs/llama3_lowacc_posthoc_deflated", None),
-    #("deflated_lowacc_from_W0", "output/deflated_lowacc_from_W0/adapter_deflated_stage2", None),
-    #("deflated_lowacc_from_W0_1600", "output/deflated_lowacc_from_W0/checkpoint-1600", None),
-    #("deflated_lowacc_from_W0_svd", "output/deflated_lowacc_from_W0_svd/adapter_deflated_stage2", None),
-    #("deflated_lowacc_from_W0_svd_1600", "output/deflated_lowacc_from_W0_svd/checkpoint-1600", None),
-
-    # ("lowacc_real", "outputs/lowacc_real", None),
-    # ("lowacc_mix", "outputs/lowacc_mix", None),
-    # ("lowacc_mix_star", "outputs/lowacc_mix_star", None),
-    # ("lowacc_mix_deflated_gemma", "outputs/lowacc_mix_deflated_gemma", None),
-    # ("lowacc_mix_deflated_llama", "outputs/lowacc_mix_deflated_llama", None),
-    #("lora_author_gen", "lora_author_gen/adapter", None),
-    #("lora_llama3", "lora_llama3", None)
-    #("lowacc_lora_latest", "outputs/llama3_lowacc_lora", None),
-    #("lowacc_lora_ckpt800", "outputs/llama3_lowacc_lora/checkpoint-800", None),
-    #("deflated", "outputs/stage2_style_deflated/adapter_deflated_stage2"),
-    #("deflated_1", "outputs/stage2_style_deflated_1/adapter_deflated_stage2"),
-    #("stage2_style_only", "outputs/stage2_style_sft", None),
-    #("stage2_style_only_modified", "outputs/stage2_style_sft_modified/checkpoint-1500/style", None),
-    #("stage2_style_content", "outputs/stage2_style_sft_modified/checkpoint-1500/style","outputs/stage2_style_sft_modified/checkpoint-1500/content"),
-    #("stage2_style_only_modified_1", "outputs/stage2_style_sft_modified_1/checkpoint-1500/style", None),
-    #("stage2_style_only", "outputs/stage2_style_sft_new", None),
-    #("stage1_plus_stage2", "outputs/stage2_style_sft_new", "outputs/stage1_atomic_sft"),
-    #("stage1_content_only", None, "outputs/stage1_atomic_sft"),
-    # ("lowacc_lora_ckpt800", "outputs/llama3_lowacc_lora/checkpoint-800", None),
-    # ("deflated_cpt_600", "outputs/stage2_style_deflated_cpt_ver/checkpoint-600", None),
-    # ("deflated_cpt_800", "outputs/stage2_style_deflated_cpt_ver/checkpoint-800", None),
-    # ("deflated_cpt_1000", "outputs/stage2_style_deflated_cpt_ver/checkpoint-1000", None),
-    #("deflated_cpt_1200", "outputs/stage2_style_deflated_cpt_ver/checkpoint-1200", None)
-    # ("deflated_from_base_1200", "outputs/deflated_from_base/checkpoint-1200", None),
-    # ("deflated_from_base", "outputs/deflated_from_base/adapter_deflated_stage2", None),
-    # ("deflated_from_800_ckp", "outputs/deflated_from_800/checkpoint-1200", None),
-    # ("deflated_from_800", "outputs/deflated_from_800/adapter_deflated_stage2", None),
-    #("lowacc_lora_add_one", "outputs/llama3_lowacc_lora_add_one", None),
-    #("deflated_lora_add_one", "outputs/deflated_new_author/adapter_deflated_stage2", None)
-    #("imdb_llama", "outputs/llama_imdb", None),
-    # ("Qwen", "outputs/Qwen_lowacc", None),
-    # ("deflated_Qwen", "outputs/deflated_Qwen/adapter_deflated_stage2", None),
-    # ("deflated_Qwen_checkpoint_2200", "outputs/deflated_Qwen/checkpoint-2200", None),
-    # ("deflated_Qwen_checkpoint_2600", "outputs/deflated_Qwen/checkpoint-2600", None),
-    # ("deflated_Qwen_checkpoint_2800", "outputs/deflated_Qwen/checkpoint-2800", None),
-    # ("deflated_Qwen_prompt", "outputs/deflated_Qwen_prompt/adapter_deflated_stage2", None),
-    # ("deflated_Qwen_checkpoint_prompt_2200", "outputs/deflated_Qwen_prompt/checkpoint-2200", None),
-    # ("deflated_Qwen_checkpoint_prompt_2600", "outputs/deflated_Qwen_prompt/checkpoint-2600", None),
-    # ("deflated_Qwen_checkpoint_prompt_2800", "outputs/deflated_Qwen_prompt/checkpoint-2800", None)
-    # ("deflated_imdb_llama", "outputs/deflated_llama_imdb/adapter_deflated_stage2", None),
-    # ("deflated_imdb_llama_checkpoint_800", "outputs/deflated_llama_imdb/checkpoint-800", None),
-    # ("deflated_imdb_llama_checkpoint_1200", "outputs/deflated_llama_imdb/checkpoint-1200", None),
-    # ("deflated_imdb_llama_6_1600", "outputs/deflated_imdb_6/checkpoint-1600", None),
-    # ("deflated_imdb_llama_6_2000", "outputs/deflated_imdb_6/checkpoint-2000", None),
-    # ("deflated_imdb_llama_6_2400", "outputs/deflated_imdb_6/checkpoint-2400", None),
-    # ("deflated_imdb_llama_6", "outputs/deflated_imdb_6/adapter_deflated_stage2", None)
-    # ("deflated_all_layers", "outputs/deflated_all_layers/adapter_deflated_stage2", None),
-    # ("deflated_all_layers_800", "outputs/deflated_all_layers/checkpoint-800", None),
-    # ("deflated_all_layers_1000", "outputs/deflated_all_layers/checkpoint-1000", None),
-    # ("deflated_all_layers_1200", "outputs/deflated_all_layers/checkpoint-1200", None),
-    # ("deflated_two_layers_prompt", "outputs/deflated_two_layers_prompt/adapter_deflated_stage2", None),
-    # ("deflated_two_layers_prompt_800", "outputs/deflated_two_layers_prompt/checkpoint-800", None),
-    # ("deflated_two_layers_prompt_1000", "outputs/deflated_two_layers_prompt/checkpoint-1000", None),
-    # ("deflated_two_layers_prompt_1200", "outputs/deflated_two_layers_prompt/checkpoint-1200", None)
-    #("llama_CCAT", "outputs/llama_CCAT", None),
-    # ("llama_CCAT_6", "outputs/llama_CCAT_6", None),
-    #("deflated_llama_CCAT", "outputs/deflated_CCAT/adapter_deflated_stage2", None),
-    # ("deflated_llama_CCAT_200", "outputs/deflated_CCAT/checkpoint-200", None),
-    # ("deflated_llama_CCAT_256", "outputs/deflated_CCAT/checkpoint-256", None),
-    # --- Original (Qwen CCAT, old deflation) ---
-    # ("Qwen_CCAT", "outputs/Qwen_CCAT", None),
-    # ("deflated_Qwen_CCAT", "outputs/deflated_Qwen_CCAT/adapter_deflated_stage2", None),
-    # ("deflated_Qwen_CCAT_200", "outputs/deflated_Qwen_CCAT/checkpoint-200", None)
-
-    # --- Original (Qwen CCAT, deltaW deflation) ---
-    # ("Qwen_CCAT", "outputs/Qwen_CCAT", None),
-    # ("deflated_Qwen_CCAT_deltaW", "outputs/deflated_Qwen_CCAT_deltaW/adapter_deflated_stage2", None),
-    # ("deflated_Qwen_CCAT_deltaW_200", "outputs/deflated_Qwen_CCAT_deltaW/checkpoint-200", None),
-
-    # --- Mistral CCAT (optional, deltaW deflation) ---
-    # ("Mistral_CCAT", "outputs/Mistral_CCAT", None),
-    # ("deflated_Mistral_CCAT_deltaW", "outputs/deflated_Mistral_CCAT_deltaW/adapter_deflated_stage2", None),
-    # ("deflated_Mistral_CCAT_deltaW_200", "outputs/deflated_Mistral_CCAT_deltaW/checkpoint-200", None),
-
-    # --- Gemma-2 CCAT (optional, deltaW deflation) ---
-    # ("Gemma2_CCAT", "outputs/Gemma2_CCAT", None),
-    # ("deflated_Gemma2_CCAT_deltaW", "outputs/deflated_Gemma2_CCAT_deltaW/adapter_deflated_stage2", None),
-    # ("deflated_Gemma2_CCAT_deltaW_200", "outputs/deflated_Gemma2_CCAT_deltaW/checkpoint-200", None),
-
-    # --- New (Phi-4 mini CCAT, deltaW deflation) ---
-    # ("Phi4mini_CCAT", "outputs/Phi4mini_CCAT", None),
-    # ("deflated_Phi4mini_CCAT_deltaW", "outputs/deflated_Phi4mini_CCAT_deltaW/adapter_deflated_stage2", None),
-    # ("deflated_Phi4mini_CCAT_deltaW_200", "outputs/deflated_Phi4mini_CCAT_deltaW/checkpoint-200", None),
-
-    # --- Llama-3.1 8B CCAT 100w keep50 (deltaW deflation) ---
-    # ("llama3_CCAT_100w_keep50", "outputs/llama3_CCAT_100w_keep50", None),
-    # ("deflated_Llama3_8B_reuter_100w_keep50_deltaW", "outputs/deflated_Llama3_8B_reuter_100w_keep50_deltaW/adapter_deflated_stage2", None),
-    # ("deflated_Llama3_8B_reuter_100w_keep50_deltaW_200", "outputs/deflated_Llama3_8B_reuter_100w_keep50_deltaW/checkpoint-200", None),
-
-    # --- Llama-3.1 8B lowacc 10authors 100w keep50 (deltaW deflation) ---
-    # ("llama3_lowacc_100w_keep50_12_epoch", "outputs/llama3_lowacc_100w_keep50_12_epoch", None),
-    # ("llama3_lowacc_100w_keep50", "outputs/llama3_lowacc_100w_keep50", None),
-    # ("deflated_Llama3_8B_lowacc_10authors_100w_keep50_deltaW", "outputs/deflated_Llama3_8B_lowacc_10authors_100w_keep50_deltaW/adapter_deflated_stage2", None),
-    # ("deflated_Llama3_8B_lowacc_10authors_100w_keep50_deltaW_200", "outputs/deflated_Llama3_8B_lowacc_10authors_100w_keep50_deltaW/checkpoint-200", None),
-    
-    # --- Llama-3.1 8B IMDB top10 (deltaW deflation) ---
-    # ("deflated_Llama3_8B_imdb_top10_deltaW", "outputs/deflated_Llama3_8B_imdb_top10_deltaW/adapter_deflated_stage2", None),
-    # ("deflated_Llama3_8B_imdb_top10_deltaW_1200", "outputs/deflated_Llama3_8B_imdb_top10_deltaW/checkpoint-1200", None),
-    # ("llama3_imdb_checkpoint_417", "outputs/llama3_imdb/checkpoint-417", None),
-    # ("llama_imdb_no_prompt", "outputs/llama_imdb_no_prompt", None),
-    # ("llama_imdb_no_prompt_new", "outputs/llama_imdb_no_prompt_new", None),
-    # ("llama_imdb_no_prompt_new_800", "outputs/llama_imdb_no_prompt_new/checkpoint-800", None),
-    # ("llama_imdb_no_prompt_new_1200", "outputs/llama_imdb_no_prompt_new/checkpoint-1200", None),
-    # ("llama_imdb", "outputs/llama_imdb", None),
-    # ("llama3_imdb", "outputs/llama3_imdb", None),
-
-    # --- Llama-3.1 8B CCAT50 ---
-    #("llama3_CCAT50", "outputs/llama3_CCAT50", None),
-    ("llama3_CCAT50_8", "outputs/llama3_CCAT50_8", None),
-    # ("llama3_CCAT50_8_1000", "outputs/llama3_CCAT50_8/checkpoint-1000", None),
-    ("deflated_llama3_CCAT50_deltaW", "outputs/deflated_llama3_CCAT50_deltaW/adapter_deflated_stage2", None),
-    #("deflated_llama3_CCAT50_deltaW_600", "outputs/deflated_llama3_CCAT50_deltaW/checkpoint-600", None),
-    # ("deflated_llama3_CCAT50_deltaW_1000", "outputs/deflated_llama3_CCAT50_deltaW/checkpoint-1000", None),
-    ("deflated_llama3_CCAT50_deltaW_warmup", "outputs/deflated_llama3_CCAT50_deltaW_warmup/adapter_deflated_stage2", None),
-    ("llama3_CCAT50_posthoc_deflated", "outputs/llama3_CCAT50_posthoc_deflated", None),
-    # ("deflated_llama3_CCAT50_deltaW_warmup_200", "outputs/deflated_llama3_CCAT50_deltaW_warmup/checkpoint-200", None),
-
-    # --- Llama-3.1 8B blogs50 ---
-    # ("llama3_blogs50_full", "outputs/llama3_blogs50_full", None),
-    # ("llama3_blogs50_1800", "outputs/llama3_blogs50_full/checkpoint-1800", None),
-    # ("llama3_blogs50_2000", "outputs/llama3_blogs50_full/checkpoint-2000", None),
-    # ("deflated_llama3_blogs50_deltaW_2", "outputs/deflated_llama3_blogs50_deltaW_2/adapter_deflated_stage2", None),
-    # ("deflated_llama3_blogs50_deltaW_1800", "outputs/deflated_llama3_blogs50_deltaW_2/checkpoint-1800", None),
-    # ("deflated_llama3_blogs50_deltaW_2000", "outputs/deflated_llama3_blogs50_deltaW_2/checkpoint-2000", None),
-    # ("deflated_llama3_blogs50_deltaW_2400", "outputs/deflated_llama3_blogs50_deltaW_2/checkpoint-2400", None),
-    
-
-    # --- Llama-3.1 8B blogs50_80 ---
-    #("llama3_blogs50_80_full", "outputs/llama3_blogs50_80_full", None),
-    # ("llama3_blogs50_80_3000", "outputs/llama3_blogs50_80_full/checkpoint-3000", None),
-    #("deflated_llama3_blogs50_80_deltaW", "outputs/deflated_llama3_blogs50_80_deltaW/adapter_deflated_stage2", None),
-    #("llama3_blogs50_posthoc_deflated", "outputs/llama3_blogs50_posthoc_deflated", None),
-    # ("deflated_llama3_blogs50_80_deltaW_3000", "outputs/deflated_llama3_blogs50_80_deltaW/checkpoint-3000", None),
-    # ("deflated_llama3_blogs50_80_deltaW_2_checkpoint", "outputs/deflated_llama3_blogs50_80_deltaW_2/checkpoint-2600", None),
-    # ("deflated_llama3_blogs50_80_deltaW_2", "outputs/deflated_llama3_blogs50_80_deltaW_2/adapter_deflated_stage2", None),
-
-    
-
-
-    # --- Llama-3.1 8B blogs50_80 ---
-    # ("llama3_blogs10", "outputs/llama3_blogs10", None),
-    # ("deflated_llama3_blogs10_deltaW", "outputs/deflated_llama3_blogs10_deltaW/adapter_deflated_stage2", None),
-    # ("deflated_llama3_blogs10_deltaW_2000", "outputs/deflated_llama3_blogs10_deltaW/checkpoint-2000", None),
-    # ("deflated_llama3_blogs10_deltaW_1600", "outputs/deflated_llama3_blogs10_deltaW/checkpoint-1600", None),
-
-
-
-    # --- Qwen2.5 7B CCAT (optional, deltaW deflation) ---
-    # ("Qwen25_7B_CCAT", "outputs/Qwen25_7B_CCAT", None),
-    # ("deflated_Qwen25_7B_CCAT_deltaW", "outputs/deflated_Qwen25_7B_CCAT_deltaW/adapter_deflated_stage2", None),
-    # ("deflated_Qwen25_7B_CCAT_deltaW_200", "outputs/deflated_Qwen25_7B_CCAT_deltaW/checkpoint-200", None),
+    ("EDITORS", "code/aa/checkpoints/llama3_8b_ccat50/adapter", None),
 )
-# --- Original ---
-# DEFAULT_OUTPUT_CSV = "results/deflated_CCAT_Qwen.csv"
-# DEFAULT_OUTPUT_CSV = "results/deflated_CCAT_Qwen_deltaW.csv"
-# --- Mistral (optional) ---
-# DEFAULT_OUTPUT_CSV = "results/deflated_CCAT_Mistral_deltaW.csv"
-# --- Gemma-2 (optional) ---
-# DEFAULT_OUTPUT_CSV = "results/deflated_CCAT_Gemma2_deltaW.csv"
-# --- New (Phi-4 mini) ---
-# DEFAULT_OUTPUT_CSV = "results/deflated_CCAT_Phi4mini_deltaW.csv"
-# --- Llama-3.1 8B reuter 100w keep50 ---
-# DEFAULT_OUTPUT_CSV = "results/deflated_reuter_100w_keep50_llama3_8b_deltaW.csv"
-# --- Llama-3.1 8B lowacc 10authors 100w keep50 ---
-#DEFAULT_OUTPUT_CSV = "results/deflated_lowacc_10authors_100w_keep50_llama3_8b_deltaW.csv"
-# --- Llama-3.1 8B IMDB top10 ---
-# DEFAULT_OUTPUT_CSV = "results/imdb_top10_llama3_8b_new.csv"
-# --- Llama-3.1 8B CCAT50 ---
-# DEFAULT_OUTPUT_CSV = "results/llama3_CCAT50_eval_full_test_base.csv"
-# --- Llama-3.1 8B blogs50 ---
-# DEFAULT_OUTPUT_CSV = "results/llama3_blogs50_80_eval_full_2.csv"
-# DEFAULT_OUTPUT_CSV = "results/llama3_blogs10_eval.csv"
-# DEFAULT_OUTPUT_CSV = "results/authors10_stylegen.csv"
-#DEFAULT_OUTPUT_CSV = "results/real_mix.csv"
-#DEFAULT_OUTPUT_CSV = "results/real_mix_augmentation_12600.csv"
-#DEFAULT_OUTPUT_CSV = "results/real_mix_augmentation_6600.csv"
-#DEFAULT_OUTPUT_CSV = "results/deflated_from_W0.csv"
-#DEFAULT_OUTPUT_CSV = "results/posthoc_deflated.csv"
-DEFAULT_OUTPUT_CSV = "results/posthoc_deflated_CCAT50.csv"
-#DEFAULT_OUTPUT_CSV = "results/posthoc_deflated_blogs50.csv"#
-#DEFAULT_AUTHOR_OUTPUT_CSV = "result/real_mix_augmentation_per_author_12600.csv"
-#DEFAULT_AUTHOR_OUTPUT_CSV = "result/deflated_from_W0_per_author.csv"
-#DEFAULT_AUTHOR_OUTPUT_CSV = "result/posthoc_deflated_per_author.csv"
-DEFAULT_AUTHOR_OUTPUT_CSV = "result/posthoc_deflated_per_author_CCAT50.csv"
-# --- Qwen2.5 7B (optional) ---
-# DEFAULT_OUTPUT_CSV = "results/deflated_CCAT_Qwen25_7B_deltaW.csv"
+DEFAULT_OUTPUT_CSV = "results/aa/CCAT50/accuracy.csv"
+DEFAULT_AUTHOR_OUTPUT_CSV = "results/aa/CCAT50/per_author.csv"
 MAX_CONTEXT = 1536
 MAX_NEW_TOKENS = 20
 
@@ -458,6 +241,7 @@ def load_model_and_tokenizer(
     stage1_adapter_path: Optional[str],
     device_index: int,
     use_4bit: bool,
+    deflation_bases_path: Optional[str] = None,
 ) -> tuple[torch.nn.Module, AutoTokenizer]:
     hf_logging.set_verbosity_error()
     quant = (
@@ -471,7 +255,12 @@ def load_model_and_tokenizer(
         else None
     )
 
-    tokenizer = AutoTokenizer.from_pretrained(model_id, use_fast=True)
+    tokenizer_source = (
+        adapter_path
+        if adapter_path and (Path(adapter_path) / "tokenizer_config.json").is_file()
+        else model_id
+    )
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_source, use_fast=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
@@ -507,6 +296,10 @@ def load_model_and_tokenizer(
             adapter_name="style" if stage1_adapter_path else "default",
             is_trainable=False,
         )
+
+    if deflation_bases_path:
+        bases = load_file(deflation_bases_path, device="cpu")
+        model._aa_deflation_handles = register_deflation_hooks(model, bases)
 
     model.config.pad_token_id = pad_id
     model.generation_config.pad_token_id = pad_id
@@ -852,6 +645,11 @@ def parse_args() -> argparse.Namespace:
             "Use 'none' when a path is absent and repeat flag for multiple adapters."
         ),
     )
+    parser.add_argument(
+        "--deflation-bases",
+        default=None,
+        help="Optional safetensors file of diagnostic-stage content bases to apply during inference.",
+    )
     return parser.parse_args()
 
 
@@ -915,6 +713,7 @@ def main() -> None:
                     stage1_adapter_path=stage1_adapter_path,
                     device_index=args.device,
                     use_4bit=not args.no_4bit,
+                    deflation_bases_path=args.deflation_bases,
                 )
                 include_candidates = prompt_mode != "without_candidates"
                 acc, errors, per_author_stats = evaluate_subset(
@@ -1049,6 +848,7 @@ def main() -> None:
                 stage1_adapter_path=stage1_adapter_path,
                 device_index=args.device,
                 use_4bit=not args.no_4bit,
+                deflation_bases_path=args.deflation_bases,
             )
             include_candidates = prompt_mode != "without_candidates"
             for idx, subset in enumerate(subsets):

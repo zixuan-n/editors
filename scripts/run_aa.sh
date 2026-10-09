@@ -12,7 +12,7 @@ export AA_REPORT_TO="${AA_REPORT_TO:-none}"
 "$AA_PY" code/aa/finetune_lowacc_llama.py \
   --config code/configs/aa/s0.yaml --model_variant "$AA_MODEL" --dataset "$AA_DATASET" &&
 
-# Atomic-fact diagnostic training.
+# Diagnostic training on style-neutral statements.
 "$AA_PY" code/stage1/run_atomic_stage1_cpt.py \
   --config code/configs/aa/s1.yaml --model_variant "$AA_MODEL" --dataset "$AA_DATASET" &&
 

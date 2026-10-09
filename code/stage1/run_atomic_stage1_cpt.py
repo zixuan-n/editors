@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Stage-1 atomic facts continued pretraining using TRL's SFTTrainer.
+Stage-1 continued pretraining on style-neutral statements using TRL's SFTTrainer.
 
 This script mirrors the configuration style of run_cpt.py + YAML configs from
 the Prereq_tune project, but adapts it to local JSONL datasets that already
@@ -145,7 +145,7 @@ def _resolve_attn_impl(attn_impl: Optional[str]) -> Optional[str]:
 # Main training flow
 # ---------------------------------------------------------------------------
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Stage-1 atomic facts continued pretraining.")
+    parser = argparse.ArgumentParser(description="Stage-1 continued pretraining on style-neutral statements.")
     parser.add_argument("--config", default="code/configs/aa/s1.yaml", help="Path to YAML configuration file.")
     parser.add_argument("--model_variant", default=None, help="Model settings to select from the YAML (default: default_model).")
     parser.add_argument("--dataset", default=None, help="Dataset settings to select from the YAML (default: default_dataset).")

@@ -1,4 +1,4 @@
-# Full-parameter BERT AA: warm-up classification, atomic-fact MLM, and deflated classification.
+# Full-parameter BERT AA: warm-up classification, MLM on style-neutral statements, and deflated classification.
 # Select dataset-specific paths and settings with --dataset DATASET.
 # Shared settings below apply to all five datasets.
 default_dataset: Gutenberg30

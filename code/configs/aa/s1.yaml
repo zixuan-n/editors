@@ -1,4 +1,4 @@
-# Atomic-fact diagnostic training (Stage 1).
+# Diagnostic training on style-neutral statements (Stage 1).
 # Select with --dataset DATASET --model_variant MODEL.
 # Shared fields apply to every dataset; dataset overrides are applied before model overrides.
 # Models: Llama3, Gemma2, Mistral, Phi4mini (only listed combinations are available).

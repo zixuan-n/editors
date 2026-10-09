@@ -11,7 +11,7 @@ export CUDA_VISIBLE_DEVICES="${GPU:-${CUDA_VISIBLE_DEVICES:-0}}"
 "$AA_PY" code/aa/bert_deflation/train_stage0_full_classifier.py \
   --config "$AA_CONFIG" --dataset "$AA_DATASET" &&
 
-# Atomic-fact diagnostic MLM from the base model.
+# Diagnostic MLM on style-neutral statements from the base model.
 "$AA_PY" code/aa/bert_deflation/train_stage1_full_mlm_cpt.py \
   --config "$AA_CONFIG" --dataset "$AA_DATASET" --skip_stage0_init &&
 

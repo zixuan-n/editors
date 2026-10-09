@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Continue Stage-2 style LoRA training while dynamically deflating inputs onto the
-orthogonal complement of the Stage-1 (atomic facts) adapter.
+orthogonal complement of the Stage-1 (style-neutral statements) adapter.
 
 """
 
@@ -556,7 +556,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--basis_solver", choices=["qr", "svd"], default=None)
     ap.add_argument("--basis_rank_k", type=int, default=None)
     ap.add_argument("--model_id", default=None)
-    ap.add_argument("--stage1_adapter", default=None, help="Path to the atomic-facts LoRA.")
+    ap.add_argument("--stage1_adapter", default=None, help="Path to the LoRA adapter trained on style-neutral statements.")
     ap.add_argument("--stage2_adapter", default=None, help="Path to the style LoRA checkpoint to continue training.")
     ap.add_argument("--train_jsonl", default=None)
     ap.add_argument("--dev_jsonl", default=None)

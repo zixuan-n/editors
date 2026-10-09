@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Stage 1 full-BERT masked-LM CPT on atomic facts."""
+"""Stage 1 full-BERT masked-LM CPT on style-neutral statements."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ from common import (
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train Stage-1 full-BERT MLM CPT on atomic facts.")
+    parser = argparse.ArgumentParser(description="Train Stage-1 full-BERT MLM CPT on style-neutral statements.")
     parser.add_argument("--config", default="code/configs/aa/bert_full.yaml")
     parser.add_argument("--dataset", default=None, help="Dataset settings to select from the YAML (default: default_dataset).")
     parser.add_argument("--max_train_examples", type=int, default=None)
